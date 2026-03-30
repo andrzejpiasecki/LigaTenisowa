@@ -60,7 +60,7 @@ body {
 
 .controls {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   gap: 0.8rem;
   align-items: end;
 }
@@ -192,6 +192,45 @@ tr:last-child td {
 
 tbody tr:hover {
   background: #f4f9f2;
+}
+
+#playerMatchesTable tbody tr.match-win td:first-child {
+  border-left: 4px solid #c3871d;
+  font-weight: 700;
+}
+
+#playerMatchesTable tbody tr.match-win td:last-child {
+  color: #8a5f15;
+  font-weight: 700;
+}
+
+#playerMatchesTable tbody tr.match-loss td:first-child {
+  border-left: 4px solid #8a8f98;
+}
+
+#playerMatchesTable tbody tr.match-loss td:last-child {
+  color: #5f6670;
+}
+
+.match-pill {
+  display: inline-block;
+  min-width: 1.35rem;
+  padding: 0.08rem 0.35rem;
+  margin-right: 0.35rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.match-pill.win {
+  background: #f3e2b8;
+  color: #7a5514;
+}
+
+.match-pill.loss {
+  background: #e4e7ec;
+  color: #4c5561;
 }
 
 .is-selected {

@@ -2,9 +2,11 @@ const DEFAULT_PLAYER = "ANDRZEJ PIASECKI";
 const API_FRAMES_URL = "/api/r_mecze.php";
 const API_MATCHES_URL = "/api/mecze/mecze_lista.php";
 const SHARE_DATA = typeof window !== "undefined" ? window.__SHARE_DATA || null : null;
+const STORAGE_KEY = "liga-dashboard-selections";
 
 const state = {
   season: null,
+  seasons: [],
   leagues: [],
   selectedLeagueId: "",
   selectedPlayer: "",
@@ -19,6 +21,7 @@ const state = {
 };
 
 const elements = {
+  seasonSelect: document.getElementById("seasonSelect"),
   leagueSelect: document.getElementById("leagueSelect"),
   playerSelect: document.getElementById("playerSelect"),
   refreshButton: document.getElementById("refreshButton"),
@@ -52,6 +55,27 @@ function escapeHtml(text) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function loadSelections() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+    return JSON.parse(raw);
+  } catch {
+    return {};
+  }
+}
+
+function saveSelections() {
+  const payload = {
+    seasonId: state.season?.value || "",
+    leagueId: state.selectedLeagueId || "",
+    player: state.selectedPlayer || "",
+  };
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
 }
 
 async function fetchHtml(url, params) {
@@ -462,12 +486,15 @@ function renderPlayerMatches(matches, selectedPlayer) {
       const opponent = isWinner ? match.loser : match.winner;
       const playerSets = isWinner ? match.result.winnerSets : match.result.loserSets;
       const oppSets = isWinner ? match.result.loserSets : match.result.winnerSets;
+      const gamesDetails = match.sets
+        .map((set) => (isWinner ? `${set.first}:${set.second}` : `${set.second}:${set.first}`))
+        .join(", ");
       const points = playerMatchPoints(match, selectedPlayer);
       return `
-        <tr>
+        <tr class="${isWinner ? "match-win" : "match-loss"}">
           <td>${match.date}</td>
           <td>${escapeHtml(titleCase(selectedPlayer))} - ${escapeHtml(titleCase(opponent))}</td>
-          <td>${playerSets}:${oppSets}</td>
+          <td><span class="match-pill ${isWinner ? "win" : "loss"}">${isWinner ? "W" : "P"}</span> ${playerSets}:${oppSets}${gamesDetails ? ` (${gamesDetails})` : ""}</td>
           <td>${points}</td>
         </tr>
       `;
@@ -501,6 +528,7 @@ async function getInitialContext() {
   if (state.shareMode && SHARE_DATA?.latestSeason && Array.isArray(SHARE_DATA?.leagues)) {
     return {
       latestSeason: SHARE_DATA.latestSeason,
+      allSeasons: [SHARE_DATA.latestSeason],
       allLeagues: SHARE_DATA.leagues,
     };
   }
@@ -512,6 +540,7 @@ async function getInitialContext() {
   const formHtml = await fetchHtml(`/api/${frameSrc.replace(/^\//, "")}`);
   const formDoc = htmlToDocument(formHtml);
   state.formDefaults = readFormDefaults(formDoc);
+  const seasons = parseOptions(formDoc, "id_sezon").filter((season) => season.value);
   const leagues = parseOptions(formDoc, "id_liga").filter((league) => league.value);
   const currentSeason = getCurrentSeasonFromSelect(formDoc);
 
@@ -525,6 +554,7 @@ async function getInitialContext() {
 
   return {
     latestSeason: currentSeason,
+    allSeasons: seasons,
     allLeagues: leagues,
   };
 }
@@ -546,8 +576,14 @@ async function initialize() {
   elements.statusText.textContent = "Ladowanie danych...";
 
   const context = await getInitialContext();
-  state.season = context.latestSeason;
-  elements.seasonName.textContent = context.latestSeason.label;
+  const stored = loadSelections();
+  state.seasons = context.allSeasons;
+
+  const selectedSeason = state.seasons.find((season) => season.value === stored.seasonId) || context.latestSeason;
+  state.season = selectedSeason;
+
+  fillSelect(elements.seasonSelect, state.seasons, selectedSeason.value);
+  elements.seasonName.textContent = selectedSeason.label;
 
   const primaryLeagueNames = new Set(["Extraliga", "1 Liga", "2 Liga", "3 Liga", "4 Liga"]);
   const primaryLeagues = context.allLeagues.filter((league) => primaryLeagueNames.has(league.label));
@@ -558,9 +594,11 @@ async function initialize() {
   }
 
   const defaultLeague = state.leagues.find((league) => /^2\s*Liga$/i.test(league.label));
-  state.selectedLeagueId = (defaultLeague || state.leagues[0]).value;
+  state.selectedLeagueId = state.leagues.some((league) => league.value === stored.leagueId)
+    ? stored.leagueId
+    : (defaultLeague || state.leagues[0]).value;
   fillSelect(elements.leagueSelect, state.leagues, state.selectedLeagueId);
-  await refreshLeagueData();
+  await refreshLeagueData(stored.player || "");
 }
 
 function chooseDefaultPlayer(players) {
@@ -573,6 +611,7 @@ function chooseDefaultPlayer(players) {
 async function refreshLeagueData(preferredPlayer = "") {
   elements.statusText.textContent = "Pobieranie meczow...";
   const selectedLeague = state.leagues.find((league) => league.value === state.selectedLeagueId);
+  elements.seasonName.textContent = state.season?.label || "-";
 
   state.matches = await fetchMatchesForLeague(state.season.value, state.selectedLeagueId);
   const participants = getParticipants(state.matches);
@@ -587,6 +626,7 @@ async function refreshLeagueData(preferredPlayer = "") {
   );
 
   updateDashboard(selectedLeague?.label || "");
+  saveSelections();
 }
 
 function updateDashboard(leagueLabel) {
@@ -636,6 +676,22 @@ for (const header of elements.standingsHeaders) {
   });
 }
 
+elements.seasonSelect.addEventListener("change", async (event) => {
+  const nextSeason = state.seasons.find((season) => season.value === event.target.value);
+  if (!nextSeason) {
+    return;
+  }
+
+  state.season = nextSeason;
+  const defaultLeague = state.leagues.find((league) => /^2\s*Liga$/i.test(league.label));
+  if (!state.leagues.some((league) => league.value === state.selectedLeagueId)) {
+    state.selectedLeagueId = (defaultLeague || state.leagues[0]).value;
+    fillSelect(elements.leagueSelect, state.leagues, state.selectedLeagueId);
+  }
+
+  await refreshLeagueData(state.selectedPlayer);
+});
+
 elements.leagueSelect.addEventListener("change", async (event) => {
   state.selectedLeagueId = event.target.value;
   await refreshLeagueData(state.selectedPlayer);
@@ -643,6 +699,7 @@ elements.leagueSelect.addEventListener("change", async (event) => {
 
 elements.playerSelect.addEventListener("change", (event) => {
   state.selectedPlayer = event.target.value;
+  saveSelections();
   const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
   updateDashboard(league?.label || "");
 });
