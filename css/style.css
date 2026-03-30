@@ -237,6 +237,71 @@ tbody tr:hover {
   background: #e9f5e6;
 }
 
+.remaining-item {
+  border-bottom: 1px solid var(--line);
+}
+
+.remaining-item:last-child {
+  border-bottom: none;
+}
+
+.remaining-header {
+  padding: 0.85rem 0.5rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  background: transparent;
+  transition: background 0.2s;
+}
+
+.remaining-header:hover {
+  background: #f4f9f2;
+}
+
+.remaining-header strong {
+  font-size: 1.05rem;
+  color: var(--brand-strong);
+}
+
+.remaining-header .h2h-balance {
+  font-size: 0.9rem;
+  color: var(--muted);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.remaining-header .h2h-balance::after {
+  content: "▼";
+  font-size: 0.7rem;
+  transition: transform 0.3s;
+}
+
+.remaining-item.open .remaining-header .h2h-balance::after {
+  transform: rotate(180deg);
+}
+
+.remaining-content {
+  display: none;
+  padding: 0 0.5rem 1rem;
+}
+
+.remaining-item.open .remaining-content {
+  display: block;
+}
+
+.remaining-content .table-wrap {
+  margin-top: 0;
+}
+
+.remaining-content table {
+  background: #fafcf9;
+  border-radius: 8px;
+}
+
 .two-col {
   display: grid;
   grid-template-columns: 1fr;
@@ -246,34 +311,6 @@ tbody tr:hover {
 .history-note {
   color: var(--muted);
   font-size: 0.86rem;
-}
-
-.remaining-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 0.7rem;
-}
-
-.remaining-table th,
-.remaining-table td {
-  border-bottom: 1px solid #e3e8e0;
-  padding: 0.6rem 0.5rem;
-  text-align: left;
-  vertical-align: top;
-}
-
-.remaining-table th {
-  color: var(--muted);
-}
-
-.history-lines {
-  display: grid;
-  gap: 0.25rem;
-}
-
-.history-line {
-  font-size: 0.86rem;
-  color: #334034;
 }
 
 .hint {

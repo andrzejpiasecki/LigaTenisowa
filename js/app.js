@@ -541,26 +541,28 @@ function renderStandings(standings, selectedPlayer) {
   elements.standingsBody.innerHTML = rows || '<tr><td colspan="10">Brak meczow.</td></tr>';
 }
 
+function renderMatchRow(match, selectedPlayer) {
+  const isWinner = match.winner === selectedPlayer;
+  const opponent = isWinner ? match.loser : match.winner;
+  const playerSets = isWinner ? match.result.winnerSets : match.result.loserSets;
+  const oppSets = isWinner ? match.result.loserSets : match.result.winnerSets;
+  const gamesDetails = match.sets
+    .map((set) => (isWinner ? `${set.first}:${set.second}` : `${set.second}:${set.first}`))
+    .join(", ");
+  const points = playerMatchPoints(match, selectedPlayer);
+  return `
+    <tr class="${isWinner ? "match-win" : "match-loss"}">
+      <td>${match.date}</td>
+      <td>${escapeHtml(titleCase(selectedPlayer))} - ${escapeHtml(titleCase(opponent))}</td>
+      <td><span class="match-pill ${isWinner ? "win" : "loss"}">${isWinner ? "W" : "P"}</span> ${playerSets}:${oppSets}${gamesDetails ? ` (${gamesDetails})` : ""}</td>
+      <td>${points}</td>
+    </tr>
+  `;
+}
+
 function renderPlayerMatches(matches, selectedPlayer) {
   const rows = matches
-    .map((match) => {
-      const isWinner = match.winner === selectedPlayer;
-      const opponent = isWinner ? match.loser : match.winner;
-      const playerSets = isWinner ? match.result.winnerSets : match.result.loserSets;
-      const oppSets = isWinner ? match.result.loserSets : match.result.winnerSets;
-      const gamesDetails = match.sets
-        .map((set) => (isWinner ? `${set.first}:${set.second}` : `${set.second}:${set.first}`))
-        .join(", ");
-      const points = playerMatchPoints(match, selectedPlayer);
-      return `
-        <tr class="${isWinner ? "match-win" : "match-loss"}">
-          <td>${match.date}</td>
-          <td>${escapeHtml(titleCase(selectedPlayer))} - ${escapeHtml(titleCase(opponent))}</td>
-          <td><span class="match-pill ${isWinner ? "win" : "loss"}">${isWinner ? "W" : "P"}</span> ${playerSets}:${oppSets}${gamesDetails ? ` (${gamesDetails})` : ""}</td>
-          <td>${points}</td>
-        </tr>
-      `;
-    })
+    .map((match) => renderMatchRow(match, selectedPlayer))
     .join("");
 
   elements.playerMatchesBody.innerHTML = rows || '<tr><td colspan="4">Brak rozegranych meczow.</td></tr>';
@@ -572,58 +574,61 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
     return;
   }
 
-  const rows = remainingOpponents.map((opponent) => {
+  const items = remainingOpponents.map((opponent) => {
       const history = state.remainingHistoryByOpponent[opponent];
-      let balance = '<span class="history-note">-</span>';
-      let details = '<span class="history-note">Brak danych.</span>';
+      let balanceLabel = '<span class="history-note">-</span>';
+      let content = '<span class="history-note">Brak danych.</span>';
 
       if (history?.loading) {
-        details = '<span class="history-note">Ladowanie...</span>';
+        content = '<div class="panel-head"><p id="statusText">Ladowanie danych historycznych...</p></div>';
       } else if (history?.error) {
-        details = '<span class="history-note">Blad pobierania.</span>';
+        content = '<p class="hint">Blad pobierania danych historycznych.</p>';
       } else if (history?.matches) {
         if (history.matches.length === 0) {
-          balance = '0-0';
-          details = "";
+          balanceLabel = 'Bilans H2H: 0-0';
+          content = '<p class="history-note">Brak wczesniejszych meczow z tym graczem w systemie.</p>';
         } else {
           const wins = history.matches.filter((match) => match.winner === selectedPlayer).length;
           const losses = history.matches.length - wins;
-          balance = `${wins}-${losses}`;
+          balanceLabel = `Bilans H2H: ${wins}-${losses}`;
 
-          const summary = history.matches
-            .slice(0, 3)
-            .map((match) => {
-              return `<div class="history-line">${escapeHtml(formatHistoryMatchForPlayer(match, selectedPlayer))}</div>`;
-            })
+          const historyRows = history.matches
+            .map((match) => renderMatchRow(match, selectedPlayer))
             .join("");
-          details = `<div class="history-lines">${summary}</div>`;
+
+          content = `
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Data</th>
+                    <th>Mecz</th>
+                    <th>Wynik</th>
+                    <th>Punkty</th>
+                  </tr>
+                </thead>
+                <tbody>${historyRows}</tbody>
+              </table>
+            </div>
+          `;
         }
       }
 
       return `
-        <tr>
-          <td><strong>${escapeHtml(titleCase(opponent))}</strong></td>
-          <td>${balance}</td>
-          <td>${details}</td>
-        </tr>
+        <div class="remaining-item">
+          <div class="remaining-header" onclick="this.parentElement.classList.toggle('open')">
+            <strong>${escapeHtml(titleCase(opponent))}</strong>
+            <span class="h2h-balance">${balanceLabel}</span>
+          </div>
+          <div class="remaining-content">
+            ${content}
+          </div>
+        </div>
       `;
     })
     .join("");
 
-  elements.remainingMatchesList.innerHTML = `
-    <div class="table-wrap">
-      <table class="remaining-table">
-        <thead>
-          <tr>
-            <th>Przeciwnik</th>
-            <th>Bilans H2H</th>
-            <th>Ostatnie historyczne mecze</th>
-          </tr>
-        </thead>
-        <tbody>${rows}</tbody>
-      </table>
-    </div>
-  `;
+  elements.remainingMatchesList.innerHTML = `<div class="remaining-accordion">${items}</div>`;
 }
 
 function fillSelect(select, options, selectedValue) {
