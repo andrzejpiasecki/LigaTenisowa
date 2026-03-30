@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard Ligi Tenisowej</title>
+  <meta name="description" content="Dashboard ligi tenisowej z danymi meczy i tabelą punktową.">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <p class="eyebrow">Tenisv.pl</p>
+      <h1>Dashboard Ligi Tenisowej</h1>
+      <p class="subtitle">Najnowszy sezon, aktualna liga i widok wybranego gracza.</p>
+    </header>
+
+    <section class="panel controls" aria-label="Filtry">
+      <label>
+        Liga
+        <select id="leagueSelect"></select>
+      </label>
+      <label>
+        Gracz
+        <select id="playerSelect"></select>
+      </label>
+      <button id="refreshButton" type="button">Odswiez dane</button>
+    </section>
+
+    <section class="stats-grid" aria-label="Podsumowanie gracza">
+      <article class="stat-card">
+        <h2>Rozegrane</h2>
+        <p id="playedCount">0</p>
+      </article>
+      <article class="stat-card">
+        <h2>Punkty</h2>
+        <p id="playerPoints">0</p>
+      </article>
+      <article class="stat-card">
+        <h2>Pozostale</h2>
+        <p id="remainingCount">0</p>
+      </article>
+      <article class="stat-card">
+        <h2>Sezon</h2>
+        <p id="seasonName">-</p>
+      </article>
+    </section>
+
+    <section class="panel" aria-label="Tabela ligowa">
+      <div class="panel-head">
+        <h2>Tabela</h2>
+        <p id="statusText">Ladowanie...</p>
+      </div>
+      <div class="table-wrap">
+        <table id="standingsTable">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th data-sort-key="player">Gracz</th>
+              <th data-sort-key="played">M</th>
+              <th data-sort-key="wins">Z</th>
+              <th data-sort-key="losses">P</th>
+              <th data-sort-key="setsDiff">Sety</th>
+              <th data-sort-key="gamesDiff">Gemy</th>
+              <th data-sort-key="points">Pkt</th>
+              <th data-sort-key="maxPoints">Max</th>
+              <th data-sort-key="maxAvgPoints">Max Avg</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="two-col">
+      <article class="panel" aria-label="Mecze gracza">
+        <h2>Mecze rozegrane wybranego gracza</h2>
+        <div class="table-wrap">
+          <table id="playerMatchesTable">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Mecz</th>
+                <th>Wynik</th>
+                <th>Punkty</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="panel" aria-label="Mecze pozostale">
+        <h2>Mecze pozostale do rozegrania</h2>
+        <ul id="remainingMatchesList" class="remaining-list"></ul>
+      </article>
+    </section>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
