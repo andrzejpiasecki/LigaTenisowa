@@ -309,7 +309,23 @@ function ensureStats(map, player) {
   return map.get(player);
 }
 
-function buildStandings(matches) {
+function getHistoricalAvgPointsForPlayer(matches, player) {
+  if (!matches || matches.length === 0) {
+    return null;
+  }
+
+  let pointsTotal = 0;
+  for (const match of matches) {
+    const points = calculatePointsForMatch(match);
+    pointsTotal += match.winner === player ? points.winnerPoints : points.loserPoints;
+  }
+
+  return pointsTotal / matches.length;
+}
+
+function buildStandings(matches, options = {}) {
+  const selectedPlayer = options.selectedPlayer || "";
+  const historyByOpponent = options.historyByOpponent || {};
   const table = new Map();
   const opponentsMap = new Map();
   let totalWinnerPoints = 0;
@@ -397,7 +413,20 @@ function buildStandings(matches) {
     const expectedPointsPerFutureMatch = winChance * avgWinnerPoints + (1 - winChance) * avgLoserPoints;
 
     entry.maxPoints = entry.points + remainingOpponents * 5;
-    entry.maxAvgPoints = entry.points + remainingOpponents * completionFactor * expectedPointsPerFutureMatch;
+
+    if (entry.player === selectedPlayer && remainingOpponentsList.length > 0) {
+      const projectedByOpponent = remainingOpponentsList.reduce((sum, opponent) => {
+        const history = historyByOpponent[opponent];
+        const historyAvg = getHistoricalAvgPointsForPlayer(history?.matches, selectedPlayer);
+        const blended = historyAvg === null
+          ? expectedPointsPerFutureMatch
+          : expectedPointsPerFutureMatch * 0.55 + historyAvg * 0.45;
+        return sum + completionFactor * blended;
+      }, 0);
+      entry.maxAvgPoints = entry.points + projectedByOpponent;
+    } else {
+      entry.maxAvgPoints = entry.points + remainingOpponents * completionFactor * expectedPointsPerFutureMatch;
+    }
   }
 
   return [...table.values()];
@@ -676,7 +705,7 @@ async function fetchHeadToHeadHistory(playerAId, playerBId) {
   return parseMatches(htmlToDocument(html));
 }
 
-async function loadRemainingHistories(selectedPlayer, remainingOpponents) {
+async function loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel) {
   if (state.shareMode) {
     return;
   }
@@ -734,6 +763,7 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents) {
 
   if (token === state.historyRequestToken) {
     renderRemaining(remainingOpponents, selectedPlayer);
+    updateDashboard(leagueLabel, { skipHistoryLoad: true });
   }
 }
 
@@ -795,11 +825,17 @@ async function refreshLeagueData(preferredPlayer = "") {
   saveSelections();
 }
 
-function updateDashboard(leagueLabel) {
+function updateDashboard(leagueLabel, options = {}) {
+  const skipHistoryLoad = Boolean(options.skipHistoryLoad);
   const selectedPlayer = state.selectedPlayer;
   const matches = state.matches;
 
-  const standings = sortStandings(buildStandings(matches));
+  const standings = sortStandings(
+    buildStandings(matches, {
+      selectedPlayer,
+      historyByOpponent: state.remainingHistoryByOpponent,
+    }),
+  );
   renderStandings(standings, selectedPlayer);
 
   const playerMatches = matches
@@ -814,9 +850,13 @@ function updateDashboard(leagueLabel) {
   const remainingOpponents = participants
     .filter((name) => name !== selectedPlayer)
     .filter((name) => !playedOpponents.has(name));
-  state.remainingHistoryByOpponent = {};
+  if (!skipHistoryLoad) {
+    state.remainingHistoryByOpponent = {};
+  }
   renderRemaining(remainingOpponents, selectedPlayer);
-  loadRemainingHistories(selectedPlayer, remainingOpponents);
+  if (!skipHistoryLoad) {
+    loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel);
+  }
 
   const playerSummary = standings.find((entry) => entry.player === selectedPlayer);
   elements.playedCount.textContent = String(playerMatches.length);
@@ -840,7 +880,7 @@ for (const header of elements.standingsHeaders) {
     }
 
     const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
-    updateDashboard(league?.label || "");
+    updateDashboard(league?.label || "", { skipHistoryLoad: true });
   });
 }
 
