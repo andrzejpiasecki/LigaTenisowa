@@ -239,17 +239,41 @@ tbody tr:hover {
 
 .two-col {
   display: grid;
-  grid-template-columns: 2fr 1fr;
+  grid-template-columns: 1fr;
   gap: 1rem;
 }
 
-.remaining-list {
-  margin: 0.6rem 0 0;
-  padding-left: 1.2rem;
+.history-note {
+  color: var(--muted);
+  font-size: 0.86rem;
 }
 
-.remaining-list li {
-  margin-bottom: 0.35rem;
+.remaining-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 0.7rem;
+}
+
+.remaining-table th,
+.remaining-table td {
+  border-bottom: 1px solid #e3e8e0;
+  padding: 0.6rem 0.5rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.remaining-table th {
+  color: var(--muted);
+}
+
+.history-lines {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.history-line {
+  font-size: 0.86rem;
+  color: #334034;
 }
 
 .hint {

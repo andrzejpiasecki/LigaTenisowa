@@ -14,6 +14,9 @@ const state = {
   formDefaults: null,
   shareMode: Boolean(SHARE_DATA),
   leagueHtmlById: SHARE_DATA?.leagueHtmlById || {},
+  playerIdByName: {},
+  remainingHistoryByOpponent: {},
+  historyRequestToken: 0,
   standingsSort: {
     key: "points",
     direction: "desc",
@@ -129,6 +132,25 @@ function parseOptions(doc, name) {
       label: normalize(option.textContent || ""),
     }))
     .filter((option) => option.label.length > 0);
+}
+
+function buildPlayerIdMap(options) {
+  const map = {};
+  for (const option of options) {
+    if (!option.value) {
+      continue;
+    }
+    const key = normalize(option.label).toUpperCase();
+    if (!key || map[key]) {
+      continue;
+    }
+    map[key] = option.value;
+  }
+  return map;
+}
+
+function getPlayerIdByName(playerName) {
+  return state.playerIdByName[normalize(playerName).toUpperCase()] || "";
 }
 
 function getCurrentSeasonFromSelect(doc) {
@@ -454,6 +476,17 @@ function playerMatchPoints(match, player) {
   return match.winner === player ? points.winnerPoints : points.loserPoints;
 }
 
+function matchSignature(match) {
+  return `${match.date}|${match.winner}|${match.loser}|${match.result.winnerSets}:${match.result.loserSets}`;
+}
+
+function formatHistoryMatchForPlayer(match, player) {
+  const isWinner = match.winner === player;
+  const ownSets = isWinner ? match.result.winnerSets : match.result.loserSets;
+  const oppSets = isWinner ? match.result.loserSets : match.result.winnerSets;
+  return `${match.date} (${ownSets}:${oppSets})`;
+}
+
 function renderStandings(standings, selectedPlayer) {
   updateSortHeaders();
   const rows = standings
@@ -504,15 +537,64 @@ function renderPlayerMatches(matches, selectedPlayer) {
   elements.playerMatchesBody.innerHTML = rows || '<tr><td colspan="4">Brak rozegranych meczow.</td></tr>';
 }
 
-function renderRemaining(remainingOpponents) {
+function renderRemaining(remainingOpponents, selectedPlayer) {
   if (!remainingOpponents.length) {
-    elements.remainingMatchesList.innerHTML = '<li class="hint">Brak zaleglych meczow w tej lidze.</li>';
+    elements.remainingMatchesList.innerHTML = '<p class="hint">Brak zaleglych meczow w tej lidze.</p>';
     return;
   }
 
-  elements.remainingMatchesList.innerHTML = remainingOpponents
-    .map((opponent) => `<li>${escapeHtml(titleCase(opponent))}</li>`)
+  const rows = remainingOpponents.map((opponent) => {
+      const history = state.remainingHistoryByOpponent[opponent];
+      let balance = '<span class="history-note">-</span>';
+      let details = '<span class="history-note">Brak danych.</span>';
+
+      if (history?.loading) {
+        details = '<span class="history-note">Ladowanie...</span>';
+      } else if (history?.error) {
+        details = '<span class="history-note">Blad pobierania.</span>';
+      } else if (history?.matches) {
+        if (history.matches.length === 0) {
+          balance = '0-0';
+          details = "";
+        } else {
+          const wins = history.matches.filter((match) => match.winner === selectedPlayer).length;
+          const losses = history.matches.length - wins;
+          balance = `${wins}-${losses}`;
+
+          const summary = history.matches
+            .slice(0, 3)
+            .map((match) => {
+              return `<div class="history-line">${escapeHtml(formatHistoryMatchForPlayer(match, selectedPlayer))}</div>`;
+            })
+            .join("");
+          details = `<div class="history-lines">${summary}</div>`;
+        }
+      }
+
+      return `
+        <tr>
+          <td><strong>${escapeHtml(titleCase(opponent))}</strong></td>
+          <td>${balance}</td>
+          <td>${details}</td>
+        </tr>
+      `;
+    })
     .join("");
+
+  elements.remainingMatchesList.innerHTML = `
+    <div class="table-wrap">
+      <table class="remaining-table">
+        <thead>
+          <tr>
+            <th>Przeciwnik</th>
+            <th>Bilans H2H</th>
+            <th>Ostatnie historyczne mecze</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
 }
 
 function fillSelect(select, options, selectedValue) {
@@ -530,6 +612,7 @@ async function getInitialContext() {
       latestSeason: SHARE_DATA.latestSeason,
       allSeasons: [SHARE_DATA.latestSeason],
       allLeagues: SHARE_DATA.leagues,
+      playerIdByName: {},
     };
   }
 
@@ -542,6 +625,7 @@ async function getInitialContext() {
   state.formDefaults = readFormDefaults(formDoc);
   const seasons = parseOptions(formDoc, "id_sezon").filter((season) => season.value);
   const leagues = parseOptions(formDoc, "id_liga").filter((league) => league.value);
+  const players = parseOptions(formDoc, "id_gracz").filter((player) => player.value);
   const currentSeason = getCurrentSeasonFromSelect(formDoc);
 
   if (!currentSeason) {
@@ -556,6 +640,7 @@ async function getInitialContext() {
     latestSeason: currentSeason,
     allSeasons: seasons,
     allLeagues: leagues,
+    playerIdByName: buildPlayerIdMap(players),
   };
 }
 
@@ -572,10 +657,91 @@ async function fetchMatchesForLeague(seasonId, leagueId) {
   return parseMatches(htmlToDocument(html));
 }
 
+async function fetchHeadToHeadHistory(playerAId, playerBId) {
+  if (!playerAId || !playerBId) {
+    return [];
+  }
+
+  const payload = new URLSearchParams();
+  payload.append("show_strona", "1");
+  payload.append("id_sezon", "");
+  payload.append("id_liga", "");
+  payload.append("id_gracz", playerAId);
+  payload.append("id_gracz2", playerBId);
+  payload.append("sort", "data DESC");
+  payload.append("limit", "500");
+  payload.append("show", "go");
+
+  const html = await postForm(API_MATCHES_URL, payload);
+  return parseMatches(htmlToDocument(html));
+}
+
+async function loadRemainingHistories(selectedPlayer, remainingOpponents) {
+  if (state.shareMode) {
+    return;
+  }
+
+  const token = ++state.historyRequestToken;
+  const nextHistory = {};
+  for (const opponent of remainingOpponents) {
+    nextHistory[opponent] = { loading: true, matches: [] };
+  }
+  state.remainingHistoryByOpponent = nextHistory;
+  renderRemaining(remainingOpponents, selectedPlayer);
+
+  const selectedPlayerId = getPlayerIdByName(selectedPlayer);
+  const currentPairMatches = new Map();
+  for (const match of state.matches) {
+    if (match.winner === selectedPlayer || match.loser === selectedPlayer) {
+      const opponent = match.winner === selectedPlayer ? match.loser : match.winner;
+      if (!currentPairMatches.has(opponent)) {
+        currentPairMatches.set(opponent, new Set());
+      }
+      currentPairMatches.get(opponent).add(matchSignature(match));
+    }
+  }
+
+  await Promise.all(
+    remainingOpponents.map(async (opponent) => {
+      const opponentId = getPlayerIdByName(opponent);
+      try {
+        const allMatches = await fetchHeadToHeadHistory(selectedPlayerId, opponentId);
+        const currentSigs = currentPairMatches.get(opponent) || new Set();
+        const historicalOnly = allMatches.filter((match) => !currentSigs.has(matchSignature(match)));
+
+        if (token !== state.historyRequestToken) {
+          return;
+        }
+
+        state.remainingHistoryByOpponent[opponent] = {
+          loading: false,
+          error: false,
+          matches: historicalOnly,
+        };
+      } catch {
+        if (token !== state.historyRequestToken) {
+          return;
+        }
+
+        state.remainingHistoryByOpponent[opponent] = {
+          loading: false,
+          error: true,
+          matches: [],
+        };
+      }
+    }),
+  );
+
+  if (token === state.historyRequestToken) {
+    renderRemaining(remainingOpponents, selectedPlayer);
+  }
+}
+
 async function initialize() {
   elements.statusText.textContent = "Ladowanie danych...";
 
   const context = await getInitialContext();
+  state.playerIdByName = context.playerIdByName || {};
   const stored = loadSelections();
   state.seasons = context.allSeasons;
 
@@ -648,7 +814,9 @@ function updateDashboard(leagueLabel) {
   const remainingOpponents = participants
     .filter((name) => name !== selectedPlayer)
     .filter((name) => !playedOpponents.has(name));
-  renderRemaining(remainingOpponents);
+  state.remainingHistoryByOpponent = {};
+  renderRemaining(remainingOpponents, selectedPlayer);
+  loadRemainingHistories(selectedPlayer, remainingOpponents);
 
   const playerSummary = standings.find((entry) => entry.player === selectedPlayer);
   elements.playedCount.textContent = String(playerMatches.length);
