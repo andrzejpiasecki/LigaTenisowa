@@ -1,0 +1,11 @@
+{
+  "framework": null,
+  "buildCommand": "yarn build",
+  "outputDirectory": "dist",
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "http://tenisv.pl/:path*"
+    }
+  ]
+}

@@ -12,7 +12,13 @@
     <header class="hero">
       <p class="eyebrow">Tenisv.pl</p>
       <h1>Dashboard Ligi Tenisowej</h1>
-      <p class="subtitle">Najnowszy sezon, aktualna liga i widok wybranego gracza.</p>
+      <p class="subtitle">
+        <a
+        class="author-link"
+        target="_blank"
+        href="https://www.linkedin.com/in/andrzej-piasecki-9083a91/">
+        Autor
+      </a></p>
     </header>
 
     <section class="panel controls" aria-label="Filtry">
@@ -28,7 +34,7 @@
         Gracz
         <select id="playerSelect"></select>
       </label>
-      <button id="refreshButton" type="button">Odswiez dane</button>
+      <button id="refreshButton" type="button">Odśwież dane</button>
     </section>
 
     <section class="stats-grid" aria-label="Podsumowanie gracza">
@@ -41,7 +47,7 @@
         <p id="playerPoints">0</p>
       </article>
       <article class="stat-card">
-        <h2>Pozostale</h2>
+        <h2>Pozostałe</h2>
         <p id="remainingCount">0</p>
       </article>
       <article class="stat-card">
@@ -53,7 +59,7 @@
     <section class="panel" aria-label="Tabela ligowa">
       <div class="panel-head">
         <h2>Tabela</h2>
-        <p id="statusText">Ladowanie...</p>
+        <p id="statusText">Ładowanie...</p>
       </div>
       <div class="table-wrap">
         <table id="standingsTable">
@@ -95,8 +101,8 @@
       </article>
     </section>
 
-    <section class="panel" aria-label="Mecze pozostale">
-      <h2>Mecze pozostale do rozegrania</h2>
+    <section class="panel" aria-label="Mecze pozostałe">
+      <h2>Mecze pozostałe do rozegrania</h2>
       <div id="remainingMatchesList"></div>
     </section>
   </main>

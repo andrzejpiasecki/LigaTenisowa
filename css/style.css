@@ -49,6 +49,20 @@ body {
   color: var(--muted);
 }
 
+.author-link {
+  color: var(--brand-strong);
+  font-weight: 700;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(31, 91, 44, 0.35);
+  transition: color 120ms ease, border-color 120ms ease;
+}
+
+.author-link:hover,
+.author-link:focus-visible {
+  color: #154120;
+  border-color: #154120;
+}
+
 .panel {
   margin-top: 1rem;
   border: 1px solid var(--line);

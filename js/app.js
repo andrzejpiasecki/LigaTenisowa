@@ -1,4 +1,3 @@
-const DEFAULT_PLAYER = "ANDRZEJ PIASECKI";
 const API_FRAMES_URL = "/api/r_mecze.php";
 const API_MATCHES_URL = "/api/mecze/mecze_lista.php";
 const SHARE_DATA = typeof window !== "undefined" ? window.__SHARE_DATA || null : null;
@@ -94,7 +93,7 @@ async function fetchHtml(url, params) {
 
   const response = await fetch(url, config);
   if (!response.ok) {
-    throw new Error(`Nie udalo sie pobrac danych (${response.status})`);
+    throw new Error(`Nie udało się pobrać danych (${response.status})`);
   }
   return response.text();
 }
@@ -109,7 +108,7 @@ async function postForm(url, payload) {
   });
 
   if (!response.ok) {
-    throw new Error(`Nie udalo sie pobrac danych (${response.status})`);
+    throw new Error(`Nie udało się pobrać danych (${response.status})`);
   }
 
   return response.text();
@@ -538,7 +537,7 @@ function renderStandings(standings, selectedPlayer) {
     })
     .join("");
 
-  elements.standingsBody.innerHTML = rows || '<tr><td colspan="10">Brak meczow.</td></tr>';
+  elements.standingsBody.innerHTML = rows || '<tr><td colspan="10">Brak meczów.</td></tr>';
 }
 
 function renderMatchRow(match, selectedPlayer) {
@@ -565,12 +564,12 @@ function renderPlayerMatches(matches, selectedPlayer) {
     .map((match) => renderMatchRow(match, selectedPlayer))
     .join("");
 
-  elements.playerMatchesBody.innerHTML = rows || '<tr><td colspan="4">Brak rozegranych meczow.</td></tr>';
+  elements.playerMatchesBody.innerHTML = rows || '<tr><td colspan="4">Brak rozegranych meczów.</td></tr>';
 }
 
 function renderRemaining(remainingOpponents, selectedPlayer) {
   if (!remainingOpponents.length) {
-    elements.remainingMatchesList.innerHTML = '<p class="hint">Brak zaleglych meczow w tej lidze.</p>';
+    elements.remainingMatchesList.innerHTML = '<p class="hint">Brak zaległych meczów w tej lidze.</p>';
     return;
   }
 
@@ -580,13 +579,13 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
       let content = '<span class="history-note">Brak danych.</span>';
 
       if (history?.loading) {
-        content = '<div class="panel-head"><p id="statusText">Ladowanie danych historycznych...</p></div>';
+        content = '<div class="panel-head"><p id="statusText">Ładowanie danych historycznych...</p></div>';
       } else if (history?.error) {
-        content = '<p class="hint">Blad pobierania danych historycznych.</p>';
+        content = '<p class="hint">Błąd pobierania danych historycznych.</p>';
       } else if (history?.matches) {
         if (history.matches.length === 0) {
           balanceLabel = 'Bilans H2H: 0-0';
-          content = '<p class="history-note">Brak wczesniejszych meczow z tym graczem w systemie.</p>';
+          content = '<p class="history-note">Brak wcześniejszych meczów z tym graczem w systemie.</p>';
         } else {
           const wins = history.matches.filter((match) => match.winner === selectedPlayer).length;
           const losses = history.matches.length - wins;
@@ -631,13 +630,27 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
   elements.remainingMatchesList.innerHTML = `<div class="remaining-accordion">${items}</div>`;
 }
 
-function fillSelect(select, options, selectedValue) {
-  select.innerHTML = options
+function fillSelect(select, options, selectedValue, placeholder = "") {
+  const placeholderOption = placeholder
+    ? `<option value="" ${selectedValue ? "" : "selected"}>${escapeHtml(placeholder)}</option>`
+    : "";
+
+  select.innerHTML = `${placeholderOption}${options
     .map((option) => {
       const selectedAttr = option.value === selectedValue ? "selected" : "";
       return `<option value="${escapeHtml(option.value)}" ${selectedAttr}>${escapeHtml(option.label)}</option>`;
     })
-    .join("");
+    .join("")}`;
+}
+
+function resetTablesForMissingSelection(message) {
+  elements.statusText.textContent = message;
+  elements.standingsBody.innerHTML = '<tr><td colspan="10">Wybierz sezon i ligę.</td></tr>';
+  elements.playerMatchesBody.innerHTML = '<tr><td colspan="4">Wybierz zawodnika.</td></tr>';
+  elements.remainingMatchesList.innerHTML = "";
+  elements.playedCount.textContent = "0";
+  elements.playerPoints.textContent = "0";
+  elements.remainingCount.textContent = "0";
 }
 
 async function getInitialContext() {
@@ -773,18 +786,18 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents, league
 }
 
 async function initialize() {
-  elements.statusText.textContent = "Ladowanie danych...";
+  elements.statusText.textContent = "Ładowanie danych...";
 
   const context = await getInitialContext();
   state.playerIdByName = context.playerIdByName || {};
   const stored = loadSelections();
   state.seasons = context.allSeasons;
 
-  const selectedSeason = state.seasons.find((season) => season.value === stored.seasonId) || context.latestSeason;
+  const selectedSeason = state.seasons.find((season) => season.value === stored.seasonId) || state.seasons[0] || null;
   state.season = selectedSeason;
 
-  fillSelect(elements.seasonSelect, state.seasons, selectedSeason.value);
-  elements.seasonName.textContent = selectedSeason.label;
+  fillSelect(elements.seasonSelect, state.seasons, selectedSeason?.value || "");
+  elements.seasonName.textContent = selectedSeason?.label || "-";
 
   const primaryLeagueNames = new Set(["Extraliga", "1 Liga", "2 Liga", "3 Liga", "4 Liga"]);
   const primaryLeagues = context.allLeagues.filter((league) => primaryLeagueNames.has(league.label));
@@ -794,23 +807,25 @@ async function initialize() {
     throw new Error("Brak lig z meczami w najnowszym sezonie.");
   }
 
-  const defaultLeague = state.leagues.find((league) => /^2\s*Liga$/i.test(league.label));
   state.selectedLeagueId = state.leagues.some((league) => league.value === stored.leagueId)
     ? stored.leagueId
-    : (defaultLeague || state.leagues[0]).value;
+    : (state.leagues[0]?.value || "");
   fillSelect(elements.leagueSelect, state.leagues, state.selectedLeagueId);
+
   await refreshLeagueData(stored.player || "");
 }
 
 function chooseDefaultPlayer(players) {
-  if (players.includes(DEFAULT_PLAYER)) {
-    return DEFAULT_PLAYER;
-  }
   return players[0] || "";
 }
 
 async function refreshLeagueData(preferredPlayer = "") {
-  elements.statusText.textContent = "Pobieranie meczow...";
+  if (!state.season?.value || !state.selectedLeagueId) {
+    resetTablesForMissingSelection("Brak danych do wyświetlenia.");
+    return;
+  }
+
+  elements.statusText.textContent = "Pobieranie meczów...";
   const selectedLeague = state.leagues.find((league) => league.value === state.selectedLeagueId);
   elements.seasonName.textContent = state.season?.label || "-";
 
@@ -843,10 +858,12 @@ function updateDashboard(leagueLabel, options = {}) {
   );
   renderStandings(standings, selectedPlayer);
 
-  const playerMatches = matches
-    .filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer)
-    .sort((a, b) => b.date.localeCompare(a.date));
-  renderPlayerMatches(playerMatches, selectedPlayer);
+  const playerMatches = selectedPlayer
+    ? matches
+        .filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer)
+        .sort((a, b) => b.date.localeCompare(a.date))
+    : [];
+  renderPlayerMatches(playerMatches, selectedPlayer || "");
 
   const participants = getParticipants(matches);
   const playedOpponents = new Set(
@@ -855,19 +872,24 @@ function updateDashboard(leagueLabel, options = {}) {
   const remainingOpponents = participants
     .filter((name) => name !== selectedPlayer)
     .filter((name) => !playedOpponents.has(name));
-  if (!skipHistoryLoad) {
+  if (!selectedPlayer) {
     state.remainingHistoryByOpponent = {};
-  }
-  renderRemaining(remainingOpponents, selectedPlayer);
-  if (!skipHistoryLoad) {
-    loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel);
+    elements.remainingMatchesList.innerHTML = '<p class="hint">Wybierz zawodnika, aby zobaczyć pozostałe mecze.</p>';
+  } else {
+    if (!skipHistoryLoad) {
+      state.remainingHistoryByOpponent = {};
+    }
+    renderRemaining(remainingOpponents, selectedPlayer);
+    if (!skipHistoryLoad) {
+      loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel);
+    }
   }
 
   const playerSummary = standings.find((entry) => entry.player === selectedPlayer);
   elements.playedCount.textContent = String(playerMatches.length);
   elements.playerPoints.textContent = String(playerSummary?.points ?? 0);
   elements.remainingCount.textContent = String(remainingOpponents.length);
-  elements.statusText.textContent = `${state.season.label} | ${leagueLabel} | ${matches.length} meczow`;
+  elements.statusText.textContent = `${state.season.label} | ${leagueLabel} | ${matches.length} meczów`;
 }
 
 for (const header of elements.standingsHeaders) {
@@ -891,22 +913,17 @@ for (const header of elements.standingsHeaders) {
 
 elements.seasonSelect.addEventListener("change", async (event) => {
   const nextSeason = state.seasons.find((season) => season.value === event.target.value);
-  if (!nextSeason) {
-    return;
-  }
-
-  state.season = nextSeason;
-  const defaultLeague = state.leagues.find((league) => /^2\s*Liga$/i.test(league.label));
-  if (!state.leagues.some((league) => league.value === state.selectedLeagueId)) {
-    state.selectedLeagueId = (defaultLeague || state.leagues[0]).value;
-    fillSelect(elements.leagueSelect, state.leagues, state.selectedLeagueId);
-  }
+  state.season = nextSeason || null;
+  elements.seasonName.textContent = state.season?.label || "-";
+  saveSelections();
 
   await refreshLeagueData(state.selectedPlayer);
 });
 
 elements.leagueSelect.addEventListener("change", async (event) => {
   state.selectedLeagueId = event.target.value;
+  saveSelections();
+
   await refreshLeagueData(state.selectedPlayer);
 });
 
@@ -922,8 +939,8 @@ elements.refreshButton.addEventListener("click", async () => {
 });
 
 initialize().catch((error) => {
-  elements.statusText.textContent = `Blad: ${error.message}`;
-  elements.standingsBody.innerHTML = '<tr><td colspan="10">Nie udalo sie pobrac danych.</td></tr>';
+  elements.statusText.textContent = `Błąd: ${error.message}`;
+  elements.standingsBody.innerHTML = '<tr><td colspan="10">Nie udało się pobrać danych.</td></tr>';
   elements.playerMatchesBody.innerHTML = '<tr><td colspan="4">Brak danych.</td></tr>';
-  elements.remainingMatchesList.innerHTML = '<li class="hint">Sprawdz proxy /api i polaczenie z tenisv.pl.</li>';
+  elements.remainingMatchesList.innerHTML = '<li class="hint">Sprawdź proxy /api i połączenie z tenisv.pl.</li>';
 });
