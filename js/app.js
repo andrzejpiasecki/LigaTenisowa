@@ -524,23 +524,21 @@ function renderStandings(standings, selectedPlayer) {
         <tr class="${selectedClass}">
           <td>${index + 1}</td>
           <td>${escapeHtml(titleCase(entry.player))}</td>
-          <td>${entry.played}</td>
+          <td><strong>${entry.points}</strong></td>
+          <td><strong>${entry.maxAvgPoints.toFixed(1)}</strong></td>
           <td>${entry.wins}</td>
           <td>${entry.losses}</td>
           <td>${entry.setsWon}:${entry.setsLost}</td>
-          <td>${entry.gamesWon}:${entry.gamesLost}</td>
-          <td><strong>${entry.points}</strong></td>
           <td><strong>${entry.maxPoints}</strong></td>
-          <td><strong>${entry.maxAvgPoints.toFixed(1)}</strong></td>
         </tr>
       `;
     })
     .join("");
 
-  elements.standingsBody.innerHTML = rows || '<tr><td colspan="10">Brak meczów.</td></tr>';
+  elements.standingsBody.innerHTML = rows || '<tr><td colspan="8">Brak meczów.</td></tr>';
 }
 
-function renderMatchRow(match, selectedPlayer) {
+function renderMatchRow(match, selectedPlayer, showOpponent = true) {
   const isWinner = match.winner === selectedPlayer;
   const opponent = isWinner ? match.loser : match.winner;
   const playerSets = isWinner ? match.result.winnerSets : match.result.loserSets;
@@ -552,7 +550,7 @@ function renderMatchRow(match, selectedPlayer) {
   return `
     <tr class="${isWinner ? "match-win" : "match-loss"}">
       <td>${match.date}</td>
-      <td>${escapeHtml(titleCase(selectedPlayer))} - ${escapeHtml(titleCase(opponent))}</td>
+      ${showOpponent ? `<td>${escapeHtml(titleCase(opponent))}</td>` : ""}
       <td><span class="match-pill ${isWinner ? "win" : "loss"}">${isWinner ? "W" : "P"}</span> ${playerSets}:${oppSets}${gamesDetails ? ` (${gamesDetails})` : ""}</td>
       <td>${points}</td>
     </tr>
@@ -592,7 +590,7 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
           balanceLabel = `Bilans H2H: ${wins}-${losses}`;
 
           const historyRows = history.matches
-            .map((match) => renderMatchRow(match, selectedPlayer))
+            .map((match) => renderMatchRow(match, selectedPlayer, false))
             .join("");
 
           content = `
@@ -601,7 +599,6 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
                 <thead>
                   <tr>
                     <th>Data</th>
-                    <th>Mecz</th>
                     <th>Wynik</th>
                     <th>Punkty</th>
                   </tr>
@@ -645,7 +642,7 @@ function fillSelect(select, options, selectedValue, placeholder = "") {
 
 function resetTablesForMissingSelection(message) {
   elements.statusText.textContent = message;
-  elements.standingsBody.innerHTML = '<tr><td colspan="10">Wybierz sezon i ligę.</td></tr>';
+  elements.standingsBody.innerHTML = '<tr><td colspan="8">Wybierz sezon i ligę.</td></tr>';
   elements.playerMatchesBody.innerHTML = '<tr><td colspan="4">Wybierz zawodnika.</td></tr>';
   elements.remainingMatchesList.innerHTML = "";
   elements.playedCount.textContent = "0";

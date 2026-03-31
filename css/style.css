@@ -162,7 +162,6 @@ button:hover {
 table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 520px;
 }
 
 th,
@@ -316,11 +315,6 @@ tbody tr:hover {
   border-radius: 8px;
 }
 
-.two-col {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 1rem;
-}
 
 .history-note {
   color: var(--muted);
@@ -341,7 +335,47 @@ tbody tr:hover {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .two-col {
-    grid-template-columns: 1fr;
+}
+
+@media (max-width: 680px) {
+  .page {
+    width: 100%;
+    margin: 0;
+    padding: 1rem 0.5rem;
+  }
+
+  .panel {
+    padding: 0.75rem;
+    border-radius: 8px;
+  }
+
+  .stat-card {
+    padding: 0.65rem 0.8rem;
+  }
+
+  .stat-card p {
+    font-size: 1.4rem;
+  }
+
+  th, td {
+    padding: 0.4rem 0.3rem;
+    font-size: 0.88rem;
+  }
+
+  /* Player matches table adjustments */
+  #playerMatchesTable th:first-child, /* Data */
+  #playerMatchesTable td:first-child {
+    max-width: 60px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .remaining-content .table-wrap table {
+    font-size: 0.82rem;
+  }
+
+  .remaining-content .table-wrap td,
+  .remaining-content .table-wrap th {
+    padding: 0.35rem 0.2rem;
   }
 }

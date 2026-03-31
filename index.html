@@ -71,14 +71,12 @@
             <tr>
               <th>#</th>
               <th data-sort-key="player">Gracz</th>
-              <th data-sort-key="played">M</th>
+              <th data-sort-key="points">Pkt</th>
+              <th data-sort-key="maxAvgPoints">Max Avg</th>
               <th data-sort-key="wins">Z</th>
               <th data-sort-key="losses">P</th>
               <th data-sort-key="setsDiff">Sety</th>
-              <th data-sort-key="gamesDiff">Gemy</th>
-              <th data-sort-key="points">Pkt</th>
               <th data-sort-key="maxPoints">Max</th>
-              <th data-sort-key="maxAvgPoints">Max Avg</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -86,23 +84,21 @@
       </div>
     </section>
 
-    <section class="two-col">
-      <article class="panel" aria-label="Mecze gracza">
-        <h2>Mecze rozegrane wybranego gracza</h2>
-        <div class="table-wrap">
-          <table id="playerMatchesTable">
-            <thead>
-              <tr>
-                <th>Data</th>
-                <th>Mecz</th>
-                <th>Wynik</th>
-                <th>Punkty</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-      </article>
+    <section class="panel" aria-label="Mecze gracza">
+      <h2>Mecze rozegrane wybranego gracza</h2>
+      <div class="table-wrap">
+        <table id="playerMatchesTable">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Przeciwnik</th>
+              <th>Wynik</th>
+              <th>Punkty</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
 
     <section class="panel" aria-label="Mecze pozostałe">
