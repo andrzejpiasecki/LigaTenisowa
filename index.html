@@ -26,37 +26,39 @@
     </header>
 
     <section class="panel controls" aria-label="Filtry">
-      <label>
-        Sezon
-        <select id="seasonSelect"></select>
-      </label>
-      <label>
-        Liga
-        <select id="leagueSelect"></select>
-      </label>
-      <label>
-        Gracz
-        <select id="playerSelect"></select>
-      </label>
-      <button id="refreshButton" type="button">Odśwież dane</button>
+      <div class="panel-head">
+        <h2>Opcje</h2>
+        <button id="toggleControlsButton" type="button" class="toggle-button" aria-expanded="true">Zwiń</button>
+      </div>
+      <div id="controlsContent" class="controls-grid">
+        <label>
+          Sezon
+          <select id="seasonSelect"></select>
+        </label>
+        <label>
+          Liga
+          <select id="leagueSelect"></select>
+        </label>
+        <label>
+          Gracz
+          <select id="playerSelect"></select>
+        </label>
+        <button id="refreshButton" type="button">Odśwież dane</button>
+      </div>
     </section>
 
     <section class="stats-grid" aria-label="Podsumowanie gracza">
       <article class="stat-card">
-        <h2>Rozegrane</h2>
-        <p id="playedCount">0</p>
+        <h2>Mecze</h2>
+        <p class="split-stat"><span id="playedCount">0</span><span class="split-separator">/</span><span id="remainingCount">0</span></p>
       </article>
       <article class="stat-card">
         <h2>Punkty</h2>
         <p id="playerPoints">0</p>
       </article>
       <article class="stat-card">
-        <h2>Pozostałe</h2>
-        <p id="remainingCount">0</p>
-      </article>
-      <article class="stat-card">
-        <h2>Sezon</h2>
-        <p id="seasonName">-</p>
+        <h2>Pozycja</h2>
+        <p id="playerPosition">-</p>
       </article>
     </section>
 
@@ -72,7 +74,7 @@
               <th>#</th>
               <th data-sort-key="player">Gracz</th>
               <th data-sort-key="points">Pkt</th>
-              <th data-sort-key="maxAvgPoints">Max Avg</th>
+              <th data-sort-key="maxAvgPoints">Pred</th>
               <th data-sort-key="wins">Z</th>
               <th data-sort-key="losses">P</th>
               <th data-sort-key="setsDiff">Sety</th>

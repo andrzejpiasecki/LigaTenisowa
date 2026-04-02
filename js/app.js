@@ -27,6 +27,8 @@ const elements = {
   leagueSelect: document.getElementById("leagueSelect"),
   playerSelect: document.getElementById("playerSelect"),
   refreshButton: document.getElementById("refreshButton"),
+  toggleControlsButton: document.getElementById("toggleControlsButton"),
+  controlsContent: document.getElementById("controlsContent"),
   standingsBody: document.querySelector("#standingsTable tbody"),
   standingsHeaders: document.querySelectorAll("#standingsTable thead th[data-sort-key]"),
   playerMatchesBody: document.querySelector("#playerMatchesTable tbody"),
@@ -34,8 +36,8 @@ const elements = {
   playedCount: document.getElementById("playedCount"),
   playerPoints: document.getElementById("playerPoints"),
   remainingCount: document.getElementById("remainingCount"),
+  playerPosition: document.getElementById("playerPosition"),
   statusText: document.getElementById("statusText"),
-  seasonName: document.getElementById("seasonName"),
 };
 
 function normalize(text) {
@@ -76,8 +78,18 @@ function saveSelections() {
     seasonId: state.season?.value || "",
     leagueId: state.selectedLeagueId || "",
     player: state.selectedPlayer || "",
+    controlsCollapsed: Boolean(elements.controlsContent?.hidden),
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+}
+
+function setControlsCollapsed(collapsed) {
+  if (!elements.controlsContent || !elements.toggleControlsButton) {
+    return;
+  }
+  elements.controlsContent.hidden = collapsed;
+  elements.toggleControlsButton.setAttribute("aria-expanded", String(!collapsed));
+  elements.toggleControlsButton.textContent = collapsed ? "Rozwiń" : "Zwiń";
 }
 
 async function fetchHtml(url, params) {
@@ -648,6 +660,7 @@ function resetTablesForMissingSelection(message) {
   elements.playedCount.textContent = "0";
   elements.playerPoints.textContent = "0";
   elements.remainingCount.textContent = "0";
+  elements.playerPosition.textContent = "-";
 }
 
 async function getInitialContext() {
@@ -788,13 +801,13 @@ async function initialize() {
   const context = await getInitialContext();
   state.playerIdByName = context.playerIdByName || {};
   const stored = loadSelections();
+  setControlsCollapsed(Boolean(stored.controlsCollapsed));
   state.seasons = context.allSeasons;
 
   const selectedSeason = state.seasons.find((season) => season.value === stored.seasonId) || state.seasons[0] || null;
   state.season = selectedSeason;
 
   fillSelect(elements.seasonSelect, state.seasons, selectedSeason?.value || "");
-  elements.seasonName.textContent = selectedSeason?.label || "-";
 
   const primaryLeagueNames = new Set(["Extraliga", "1 Liga", "2 Liga", "3 Liga", "4 Liga"]);
   const primaryLeagues = context.allLeagues.filter((league) => primaryLeagueNames.has(league.label));
@@ -824,7 +837,6 @@ async function refreshLeagueData(preferredPlayer = "") {
 
   elements.statusText.textContent = "Pobieranie meczów...";
   const selectedLeague = state.leagues.find((league) => league.value === state.selectedLeagueId);
-  elements.seasonName.textContent = state.season?.label || "-";
 
   state.matches = await fetchMatchesForLeague(state.season.value, state.selectedLeagueId);
   const participants = getParticipants(state.matches);
@@ -883,9 +895,11 @@ function updateDashboard(leagueLabel, options = {}) {
   }
 
   const playerSummary = standings.find((entry) => entry.player === selectedPlayer);
+  const playerPosition = standings.findIndex((entry) => entry.player === selectedPlayer);
   elements.playedCount.textContent = String(playerMatches.length);
   elements.playerPoints.textContent = String(playerSummary?.points ?? 0);
   elements.remainingCount.textContent = String(remainingOpponents.length);
+  elements.playerPosition.textContent = playerPosition >= 0 ? String(playerPosition + 1) : "-";
   elements.statusText.textContent = `${state.season.label} | ${leagueLabel} | ${matches.length} meczów`;
 }
 
@@ -911,7 +925,6 @@ for (const header of elements.standingsHeaders) {
 elements.seasonSelect.addEventListener("change", async (event) => {
   const nextSeason = state.seasons.find((season) => season.value === event.target.value);
   state.season = nextSeason || null;
-  elements.seasonName.textContent = state.season?.label || "-";
   saveSelections();
 
   await refreshLeagueData(state.selectedPlayer);
@@ -933,6 +946,12 @@ elements.playerSelect.addEventListener("change", (event) => {
 
 elements.refreshButton.addEventListener("click", async () => {
   await refreshLeagueData(state.selectedPlayer);
+});
+
+elements.toggleControlsButton.addEventListener("click", () => {
+  const nextCollapsed = !elements.controlsContent.hidden;
+  setControlsCollapsed(nextCollapsed);
+  saveSelections();
 });
 
 initialize().catch((error) => {

@@ -74,6 +74,11 @@ body {
 
 .controls {
   display: grid;
+  gap: 0.8rem;
+}
+
+.controls-grid {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
   gap: 0.8rem;
   align-items: end;
@@ -108,6 +113,15 @@ button:hover {
   background: linear-gradient(180deg, #2f8242 0%, #236431 100%);
 }
 
+.toggle-button {
+  min-width: 6rem;
+  padding: 0.45rem 0.7rem;
+}
+
+#controlsContent[hidden] {
+  display: none;
+}
+
 .stats-grid {
   margin-top: 1rem;
   display: grid;
@@ -135,6 +149,17 @@ button:hover {
   font-weight: 700;
   color: var(--brand-strong);
 }
+
+.split-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 0.3rem;
+}
+
+.split-separator {
+  opacity: 0.6;
+}
+
 
 .panel-head {
   display: flex;
@@ -327,7 +352,7 @@ tbody tr:hover {
 }
 
 @media (max-width: 860px) {
-  .controls {
+  .controls-grid {
     grid-template-columns: 1fr;
   }
 
