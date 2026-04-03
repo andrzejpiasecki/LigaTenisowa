@@ -32,11 +32,14 @@ const elements = {
   standingsBody: document.querySelector("#standingsTable tbody"),
   standingsHeaders: document.querySelectorAll("#standingsTable thead th[data-sort-key]"),
   playerMatchesBody: document.querySelector("#playerMatchesTable tbody"),
+  allMatchesBody: document.querySelector("#allMatchesTable tbody"),
   remainingMatchesList: document.getElementById("remainingMatchesList"),
   playedCount: document.getElementById("playedCount"),
   playerPoints: document.getElementById("playerPoints"),
   remainingCount: document.getElementById("remainingCount"),
   playerPosition: document.getElementById("playerPosition"),
+  playerSets: document.getElementById("playerSets"),
+  selectedPlayerHeading: document.getElementById("selectedPlayerHeading"),
   statusText: document.getElementById("statusText"),
 };
 
@@ -90,6 +93,14 @@ function setControlsCollapsed(collapsed) {
   elements.controlsContent.hidden = collapsed;
   elements.toggleControlsButton.setAttribute("aria-expanded", String(!collapsed));
   elements.toggleControlsButton.textContent = collapsed ? "Rozwiń" : "Zwiń";
+}
+
+function updateSelectedPlayerHeading(playerName) {
+  if (!elements.selectedPlayerHeading) {
+    return;
+  }
+  const label = playerName ? titleCase(playerName) : "-";
+  elements.selectedPlayerHeading.textContent = label;
 }
 
 async function fetchHtml(url, params) {
@@ -320,23 +331,7 @@ function ensureStats(map, player) {
   return map.get(player);
 }
 
-function getHistoricalAvgPointsForPlayer(matches, player) {
-  if (!matches || matches.length === 0) {
-    return null;
-  }
-
-  let pointsTotal = 0;
-  for (const match of matches) {
-    const points = calculatePointsForMatch(match);
-    pointsTotal += match.winner === player ? points.winnerPoints : points.loserPoints;
-  }
-
-  return pointsTotal / matches.length;
-}
-
-function buildStandings(matches, options = {}) {
-  const selectedPlayer = options.selectedPlayer || "";
-  const historyByOpponent = options.historyByOpponent || {};
+function buildStandings(matches) {
   const table = new Map();
   const opponentsMap = new Map();
   let totalWinnerPoints = 0;
@@ -425,19 +420,7 @@ function buildStandings(matches, options = {}) {
 
     entry.maxPoints = entry.points + remainingOpponents * 5;
 
-    if (entry.player === selectedPlayer && remainingOpponentsList.length > 0) {
-      const projectedByOpponent = remainingOpponentsList.reduce((sum, opponent) => {
-        const history = historyByOpponent[opponent];
-        const historyAvg = getHistoricalAvgPointsForPlayer(history?.matches, selectedPlayer);
-        const blended = historyAvg === null
-          ? expectedPointsPerFutureMatch
-          : expectedPointsPerFutureMatch * 0.55 + historyAvg * 0.45;
-        return sum + completionFactor * blended;
-      }, 0);
-      entry.maxAvgPoints = entry.points + projectedByOpponent;
-    } else {
-      entry.maxAvgPoints = entry.points + remainingOpponents * completionFactor * expectedPointsPerFutureMatch;
-    }
+    entry.maxAvgPoints = entry.points + remainingOpponents * completionFactor * expectedPointsPerFutureMatch;
   }
 
   return [...table.values()];
@@ -511,11 +494,6 @@ function getParticipants(matches) {
   );
 }
 
-function playerMatchPoints(match, player) {
-  const points = calculatePointsForMatch(match);
-  return match.winner === player ? points.winnerPoints : points.loserPoints;
-}
-
 function matchSignature(match) {
   return `${match.date}|${match.winner}|${match.loser}|${match.result.winnerSets}:${match.result.loserSets}`;
 }
@@ -533,21 +511,19 @@ function renderStandings(standings, selectedPlayer) {
     .map((entry, index) => {
       const selectedClass = entry.player === selectedPlayer ? "is-selected" : "";
       return `
-        <tr class="${selectedClass}">
+        <tr class="${selectedClass}" data-player="${escapeHtml(entry.player)}">
           <td>${index + 1}</td>
           <td>${escapeHtml(titleCase(entry.player))}</td>
           <td><strong>${entry.points}</strong></td>
           <td><strong>${entry.maxAvgPoints.toFixed(1)}</strong></td>
           <td>${entry.wins}</td>
           <td>${entry.losses}</td>
-          <td>${entry.setsWon}:${entry.setsLost}</td>
-          <td><strong>${entry.maxPoints}</strong></td>
         </tr>
       `;
     })
     .join("");
 
-  elements.standingsBody.innerHTML = rows || '<tr><td colspan="8">Brak meczów.</td></tr>';
+  elements.standingsBody.innerHTML = rows || '<tr><td colspan="6">Brak meczów.</td></tr>';
 }
 
 function renderMatchRow(match, selectedPlayer, showOpponent = true) {
@@ -558,13 +534,11 @@ function renderMatchRow(match, selectedPlayer, showOpponent = true) {
   const gamesDetails = match.sets
     .map((set) => (isWinner ? `${set.first}:${set.second}` : `${set.second}:${set.first}`))
     .join(", ");
-  const points = playerMatchPoints(match, selectedPlayer);
   return `
     <tr class="${isWinner ? "match-win" : "match-loss"}">
       <td>${match.date}</td>
       ${showOpponent ? `<td>${escapeHtml(titleCase(opponent))}</td>` : ""}
-      <td><span class="match-pill ${isWinner ? "win" : "loss"}">${isWinner ? "W" : "P"}</span> ${playerSets}:${oppSets}${gamesDetails ? ` (${gamesDetails})` : ""}</td>
-      <td>${points}</td>
+      <td>${playerSets}:${oppSets}${gamesDetails ? ` (${gamesDetails})` : ""}</td>
     </tr>
   `;
 }
@@ -574,7 +548,29 @@ function renderPlayerMatches(matches, selectedPlayer) {
     .map((match) => renderMatchRow(match, selectedPlayer))
     .join("");
 
-  elements.playerMatchesBody.innerHTML = rows || '<tr><td colspan="4">Brak rozegranych meczów.</td></tr>';
+  elements.playerMatchesBody.innerHTML = rows || '<tr><td colspan="3">Brak rozegranych meczów.</td></tr>';
+}
+
+function renderAllMatches(matches) {
+  const rows = [...matches]
+    .sort((a, b) => b.date.localeCompare(a.date))
+    .map((match) => {
+      const setsDetails = match.sets
+        .map((set) => `${set.first}:${set.second}`)
+        .join(", ");
+      const resultText = `${match.result.winnerSets}:${match.result.loserSets}${setsDetails ? ` (${setsDetails})` : ""}`;
+      return `
+        <tr>
+          <td>${match.date}</td>
+          <td>${escapeHtml(titleCase(match.winner))}</td>
+          <td>${escapeHtml(titleCase(match.loser))}</td>
+          <td>${resultText}</td>
+        </tr>
+      `;
+    })
+    .join("");
+
+  elements.allMatchesBody.innerHTML = rows || '<tr><td colspan="4">Brak meczów w tej lidze.</td></tr>';
 }
 
 function renderRemaining(remainingOpponents, selectedPlayer) {
@@ -612,7 +608,6 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
                   <tr>
                     <th>Data</th>
                     <th>Wynik</th>
-                    <th>Punkty</th>
                   </tr>
                 </thead>
                 <tbody>${historyRows}</tbody>
@@ -654,13 +649,16 @@ function fillSelect(select, options, selectedValue, placeholder = "") {
 
 function resetTablesForMissingSelection(message) {
   elements.statusText.textContent = message;
-  elements.standingsBody.innerHTML = '<tr><td colspan="8">Wybierz sezon i ligę.</td></tr>';
-  elements.playerMatchesBody.innerHTML = '<tr><td colspan="4">Wybierz zawodnika.</td></tr>';
+  updateSelectedPlayerHeading("");
+  elements.standingsBody.innerHTML = '<tr><td colspan="6">Wybierz sezon i ligę.</td></tr>';
+  elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Wybierz zawodnika.</td></tr>';
+  elements.allMatchesBody.innerHTML = '<tr><td colspan="4">Wybierz sezon i ligę.</td></tr>';
   elements.remainingMatchesList.innerHTML = "";
   elements.playedCount.textContent = "0";
   elements.playerPoints.textContent = "0";
   elements.remainingCount.textContent = "0";
   elements.playerPosition.textContent = "-";
+  elements.playerSets.textContent = "0:0";
 }
 
 async function getInitialContext() {
@@ -858,12 +856,10 @@ function updateDashboard(leagueLabel, options = {}) {
   const skipHistoryLoad = Boolean(options.skipHistoryLoad);
   const selectedPlayer = state.selectedPlayer;
   const matches = state.matches;
+  updateSelectedPlayerHeading(selectedPlayer);
 
   const standings = sortStandings(
-    buildStandings(matches, {
-      selectedPlayer,
-      historyByOpponent: state.remainingHistoryByOpponent,
-    }),
+    buildStandings(matches),
   );
   renderStandings(standings, selectedPlayer);
 
@@ -873,6 +869,7 @@ function updateDashboard(leagueLabel, options = {}) {
         .sort((a, b) => b.date.localeCompare(a.date))
     : [];
   renderPlayerMatches(playerMatches, selectedPlayer || "");
+  renderAllMatches(matches);
 
   const participants = getParticipants(matches);
   const playedOpponents = new Set(
@@ -900,6 +897,7 @@ function updateDashboard(leagueLabel, options = {}) {
   elements.playerPoints.textContent = String(playerSummary?.points ?? 0);
   elements.remainingCount.textContent = String(remainingOpponents.length);
   elements.playerPosition.textContent = playerPosition >= 0 ? String(playerPosition + 1) : "-";
+  elements.playerSets.textContent = `${playerSummary?.setsWon ?? 0}:${playerSummary?.setsLost ?? 0}`;
   elements.statusText.textContent = `${state.season.label} | ${leagueLabel} | ${matches.length} meczów`;
 }
 
@@ -944,19 +942,41 @@ elements.playerSelect.addEventListener("change", (event) => {
   updateDashboard(league?.label || "");
 });
 
+elements.standingsBody.addEventListener("click", (event) => {
+  const row = event.target.closest("tr[data-player]");
+  const nextPlayer = row?.dataset.player || "";
+  if (!nextPlayer || nextPlayer === state.selectedPlayer) {
+    return;
+  }
+
+  state.selectedPlayer = nextPlayer;
+  elements.playerSelect.value = nextPlayer;
+  saveSelections();
+  const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
+  updateDashboard(league?.label || "");
+});
+
 elements.refreshButton.addEventListener("click", async () => {
   await refreshLeagueData(state.selectedPlayer);
 });
 
-elements.toggleControlsButton.addEventListener("click", () => {
-  const nextCollapsed = !elements.controlsContent.hidden;
-  setControlsCollapsed(nextCollapsed);
-  saveSelections();
-});
+if (
+  elements.toggleControlsButton
+  && elements.controlsContent
+  && elements.toggleControlsButton.dataset.toggleBound !== "1"
+) {
+  elements.toggleControlsButton.dataset.toggleBound = "1";
+  elements.toggleControlsButton.addEventListener("click", () => {
+    const nextCollapsed = !elements.controlsContent.hidden;
+    setControlsCollapsed(nextCollapsed);
+    saveSelections();
+  });
+}
 
 initialize().catch((error) => {
   elements.statusText.textContent = `Błąd: ${error.message}`;
   elements.standingsBody.innerHTML = '<tr><td colspan="10">Nie udało się pobrać danych.</td></tr>';
-  elements.playerMatchesBody.innerHTML = '<tr><td colspan="4">Brak danych.</td></tr>';
+  elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Brak danych.</td></tr>';
+  elements.allMatchesBody.innerHTML = '<tr><td colspan="4">Brak danych.</td></tr>';
   elements.remainingMatchesList.innerHTML = '<li class="hint">Sprawdź proxy /api i połączenie z tenisv.pl.</li>';
 });

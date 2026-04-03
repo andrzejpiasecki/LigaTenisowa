@@ -122,6 +122,11 @@ button:hover {
   display: none;
 }
 
+.selected-player-heading {
+  margin: 0.4rem 0 0.1rem;
+  color: var(--brand-strong);
+}
+
 .stats-grid {
   margin-top: 1rem;
   display: grid;
@@ -232,6 +237,17 @@ tbody tr:hover {
   background: #f4f9f2;
 }
 
+#standingsTable tbody tr[data-player] {
+  cursor: pointer;
+  transition: background-color 0.15s ease;
+}
+
+#standingsTable tbody tr[data-player]:hover td:nth-child(2) {
+  color: var(--brand-strong);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 #playerMatchesTable tbody tr.match-win td:first-child {
   border-left: 4px solid #c3871d;
   font-weight: 700;
@@ -248,6 +264,17 @@ tbody tr:hover {
 
 #playerMatchesTable tbody tr.match-loss td:last-child {
   color: #5f6670;
+}
+
+#playerMatchesTable th:nth-child(2),
+#playerMatchesTable td:nth-child(2) {
+  min-width: 14rem;
+}
+
+.table-wrap table th:first-child,
+.table-wrap table td:first-child {
+  white-space: nowrap;
+  width: 1%;
 }
 
 .match-pill {
@@ -390,9 +417,21 @@ tbody tr:hover {
   /* Player matches table adjustments */
   #playerMatchesTable th:first-child, /* Data */
   #playerMatchesTable td:first-child {
-    max-width: 60px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    max-width: none;
+    overflow: visible;
+    text-overflow: clip;
+  }
+
+  #playerMatchesTable th:nth-child(2),
+  #playerMatchesTable td:nth-child(2) {
+    min-width: 10rem;
+  }
+
+  #allMatchesTable th:nth-child(2),
+  #allMatchesTable td:nth-child(2),
+  #allMatchesTable th:nth-child(3),
+  #allMatchesTable td:nth-child(3) {
+    min-width: 9rem;
   }
 
   .remaining-content .table-wrap table {

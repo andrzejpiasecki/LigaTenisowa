@@ -47,6 +47,8 @@
       </div>
     </section>
 
+    <h2 id="selectedPlayerHeading" class="selected-player-heading">-</h2>
+
     <section class="stats-grid" aria-label="Podsumowanie gracza">
       <article class="stat-card">
         <h2>Mecze</h2>
@@ -59,6 +61,10 @@
       <article class="stat-card">
         <h2>Pozycja</h2>
         <p id="playerPosition">-</p>
+      </article>
+      <article class="stat-card">
+        <h2>Sety</h2>
+        <p id="playerSets">0:0</p>
       </article>
     </section>
 
@@ -77,8 +83,6 @@
               <th data-sort-key="maxAvgPoints">Pred</th>
               <th data-sort-key="wins">Z</th>
               <th data-sort-key="losses">P</th>
-              <th data-sort-key="setsDiff">Sety</th>
-              <th data-sort-key="maxPoints">Max</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -87,7 +91,7 @@
     </section>
 
     <section class="panel" aria-label="Mecze gracza">
-      <h2>Mecze rozegrane wybranego gracza</h2>
+      <h2>Mecze rozegrane</h2>
       <div class="table-wrap">
         <table id="playerMatchesTable">
           <thead>
@@ -95,7 +99,6 @@
               <th>Data</th>
               <th>Przeciwnik</th>
               <th>Wynik</th>
-              <th>Punkty</th>
             </tr>
           </thead>
           <tbody></tbody>
@@ -106,6 +109,23 @@
     <section class="panel" aria-label="Mecze pozostałe">
       <h2>Mecze pozostałe do rozegrania</h2>
       <div id="remainingMatchesList"></div>
+    </section>
+
+    <section class="panel" aria-label="Wszystkie mecze">
+      <h2>Wszystkie mecze</h2>
+      <div class="table-wrap">
+        <table id="allMatchesTable">
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Zwycięzca</th>
+              <th>Przegrany</th>
+              <th>Wynik</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </section>
   </main>
 
