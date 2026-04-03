@@ -277,6 +277,25 @@ tbody tr:hover {
   width: 1%;
 }
 
+.position-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.position-change {
+  font-size: 0.8rem;
+  line-height: 1;
+}
+
+.position-change.up {
+  color: #1e8e3e;
+}
+
+.position-change.down {
+  color: #c62828;
+}
+
 .match-pill {
   display: inline-block;
   min-width: 1.35rem;

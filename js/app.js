@@ -478,6 +478,33 @@ function sortStandings(standings) {
   });
 }
 
+function buildPositionChangeByPlayer(matches) {
+  if (matches.length < 2) {
+    return {};
+  }
+
+  const matchesSortedByDateDesc = [...matches].sort((a, b) => b.date.localeCompare(a.date));
+  const currentStandings = buildStandings(matchesSortedByDateDesc).sort(defaultStandingsComparator);
+  const previousStandings = buildStandings(matchesSortedByDateDesc.slice(1)).sort(defaultStandingsComparator);
+
+  const previousPositionByPlayer = new Map(
+    previousStandings.map((entry, index) => [entry.player, index + 1]),
+  );
+
+  const positionChangeByPlayer = {};
+  for (const [index, entry] of currentStandings.entries()) {
+    const currentPosition = index + 1;
+    const previousPosition = previousPositionByPlayer.get(entry.player);
+    if (!previousPosition) {
+      positionChangeByPlayer[entry.player] = 0;
+      continue;
+    }
+    positionChangeByPlayer[entry.player] = previousPosition - currentPosition;
+  }
+
+  return positionChangeByPlayer;
+}
+
 function updateSortHeaders() {
   for (const header of elements.standingsHeaders) {
     const key = header.getAttribute("data-sort-key");
@@ -505,14 +532,20 @@ function formatHistoryMatchForPlayer(match, player) {
   return `${match.date} (${ownSets}:${oppSets})`;
 }
 
-function renderStandings(standings, selectedPlayer) {
+function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {}) {
   updateSortHeaders();
   const rows = standings
     .map((entry, index) => {
       const selectedClass = entry.player === selectedPlayer ? "is-selected" : "";
+      const positionChange = positionChangeByPlayer[entry.player] || 0;
+      const positionTrend = positionChange > 0
+        ? '<span class="position-change up" aria-label="Pozycja poprawiła się od poprzedniego meczu">▲</span>'
+        : positionChange < 0
+          ? '<span class="position-change down" aria-label="Pozycja pogorszyła się od poprzedniego meczu">▼</span>'
+          : "";
       return `
         <tr class="${selectedClass}" data-player="${escapeHtml(entry.player)}">
-          <td>${index + 1}</td>
+          <td><span class="position-cell"><span>${index + 1}</span>${positionTrend}</span></td>
           <td>${escapeHtml(titleCase(entry.player))}</td>
           <td><strong>${entry.points}</strong></td>
           <td><strong>${entry.maxAvgPoints.toFixed(1)}</strong></td>
@@ -861,7 +894,8 @@ function updateDashboard(leagueLabel, options = {}) {
   const standings = sortStandings(
     buildStandings(matches),
   );
-  renderStandings(standings, selectedPlayer);
+  const positionChangeByPlayer = buildPositionChangeByPlayer(matches);
+  renderStandings(standings, selectedPlayer, positionChangeByPlayer);
 
   const playerMatches = selectedPlayer
     ? matches
