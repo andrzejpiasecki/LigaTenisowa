@@ -2,6 +2,7 @@ const API_FRAMES_URL = "/api/r_mecze.php";
 const API_MATCHES_URL = "/api/mecze/mecze_lista.php";
 const SHARE_DATA = typeof window !== "undefined" ? window.__SHARE_DATA || null : null;
 const STORAGE_KEY = "liga-dashboard-selections";
+const AUTO_REFRESH_THROTTLE_MS = 2500;
 
 const state = {
   season: null,
@@ -20,6 +21,9 @@ const state = {
     key: "points",
     direction: "desc",
   },
+  refreshInFlight: false,
+  queuedRefresh: null,
+  lastAutoRefreshAt: 0,
 };
 
 const elements = {
@@ -42,6 +46,21 @@ const elements = {
   selectedPlayerHeading: document.getElementById("selectedPlayerHeading"),
   statusText: document.getElementById("statusText"),
 };
+
+function setLoadingState(isLoading, text = "Pobieranie meczów...") {
+  if (!elements.statusText) {
+    return;
+  }
+
+  elements.statusText.classList.toggle("is-loading", isLoading);
+  if (isLoading) {
+    elements.statusText.textContent = text;
+  }
+
+  if (elements.refreshButton) {
+    elements.refreshButton.disabled = isLoading;
+  }
+}
 
 function normalize(text) {
   return text.replace(/\s+/g, " ").trim();
@@ -860,29 +879,63 @@ function chooseDefaultPlayer(players) {
   return players[0] || "";
 }
 
-async function refreshLeagueData(preferredPlayer = "") {
-  if (!state.season?.value || !state.selectedLeagueId) {
-    resetTablesForMissingSelection("Brak danych do wyświetlenia.");
+async function refreshLeagueData(preferredPlayer = "", options = {}) {
+  if (state.refreshInFlight) {
+    state.queuedRefresh = { preferredPlayer, options };
     return;
   }
 
-  elements.statusText.textContent = "Pobieranie meczów...";
-  const selectedLeague = state.leagues.find((league) => league.value === state.selectedLeagueId);
+  state.refreshInFlight = true;
 
-  state.matches = await fetchMatchesForLeague(state.season.value, state.selectedLeagueId);
-  const participants = getParticipants(state.matches);
-  state.selectedPlayer = preferredPlayer && participants.includes(preferredPlayer)
-    ? preferredPlayer
-    : chooseDefaultPlayer(participants);
+  if (!state.season?.value || !state.selectedLeagueId) {
+    resetTablesForMissingSelection("Brak danych do wyświetlenia.");
+    state.refreshInFlight = false;
+    return;
+  }
 
-  fillSelect(
-    elements.playerSelect,
-    participants.map((player) => ({ value: player, label: titleCase(player) })),
-    state.selectedPlayer,
-  );
+  setLoadingState(true, options.statusText || "Pobieranie meczów...");
 
-  updateDashboard(selectedLeague?.label || "");
-  saveSelections();
+  try {
+    const selectedLeague = state.leagues.find((league) => league.value === state.selectedLeagueId);
+
+    state.matches = await fetchMatchesForLeague(state.season.value, state.selectedLeagueId);
+    const participants = getParticipants(state.matches);
+    state.selectedPlayer = preferredPlayer && participants.includes(preferredPlayer)
+      ? preferredPlayer
+      : chooseDefaultPlayer(participants);
+
+    fillSelect(
+      elements.playerSelect,
+      participants.map((player) => ({ value: player, label: titleCase(player) })),
+      state.selectedPlayer,
+    );
+
+    updateDashboard(selectedLeague?.label || "");
+    saveSelections();
+  } finally {
+    setLoadingState(false);
+    state.refreshInFlight = false;
+
+    if (state.queuedRefresh) {
+      const queued = state.queuedRefresh;
+      state.queuedRefresh = null;
+      await refreshLeagueData(queued.preferredPlayer, queued.options);
+    }
+  }
+}
+
+function triggerAutoRefresh() {
+  if (document.visibilityState === "hidden") {
+    return;
+  }
+
+  const now = Date.now();
+  if (now - state.lastAutoRefreshAt < AUTO_REFRESH_THROTTLE_MS) {
+    return;
+  }
+
+  state.lastAutoRefreshAt = now;
+  refreshLeagueData(state.selectedPlayer, { statusText: "Odświeżanie danych..." });
 }
 
 function updateDashboard(leagueLabel, options = {}) {
@@ -992,6 +1045,16 @@ elements.standingsBody.addEventListener("click", (event) => {
 
 elements.refreshButton.addEventListener("click", async () => {
   await refreshLeagueData(state.selectedPlayer);
+});
+
+window.addEventListener("focus", () => {
+  triggerAutoRefresh();
+});
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    triggerAutoRefresh();
+  }
 });
 
 if (
