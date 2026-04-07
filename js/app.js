@@ -3,6 +3,7 @@ const API_MATCHES_URL = "/api/mecze/mecze_lista.php";
 const SHARE_DATA = typeof window !== "undefined" ? window.__SHARE_DATA || null : null;
 const STORAGE_KEY = "liga-dashboard-selections";
 const AUTO_REFRESH_THROTTLE_MS = 2500;
+const NEW_DATA_BADGE_DURATION_MS = 7000;
 
 const state = {
   season: null,
@@ -16,6 +17,7 @@ const state = {
   leagueHtmlById: SHARE_DATA?.leagueHtmlById || {},
   playerIdByName: {},
   remainingHistoryByOpponent: {},
+  remainingPointsPredictionByOpponent: {},
   historyRequestToken: 0,
   standingsSort: {
     key: "points",
@@ -24,6 +26,14 @@ const state = {
   refreshInFlight: false,
   queuedRefresh: null,
   lastAutoRefreshAt: 0,
+  loadedContext: {
+    seasonId: "",
+    leagueId: "",
+  },
+  newDataBadgeTimeoutId: null,
+  historicalStrengthByLeagueId: {},
+  historicalLeagueStrengthByPlayer: {},
+  historicalLeagueAvgPointsPerMatch: 2.5,
 };
 
 const elements = {
@@ -38,6 +48,7 @@ const elements = {
   playerMatchesBody: document.querySelector("#playerMatchesTable tbody"),
   allMatchesBody: document.querySelector("#allMatchesTable tbody"),
   remainingMatchesList: document.getElementById("remainingMatchesList"),
+  predictionInfoBox: document.getElementById("predictionInfoBox"),
   playedCount: document.getElementById("playedCount"),
   playerPoints: document.getElementById("playerPoints"),
   remainingCount: document.getElementById("remainingCount"),
@@ -45,6 +56,7 @@ const elements = {
   playerSets: document.getElementById("playerSets"),
   selectedPlayerHeading: document.getElementById("selectedPlayerHeading"),
   statusText: document.getElementById("statusText"),
+  newDataBadge: document.getElementById("newDataBadge"),
 };
 
 function setLoadingState(isLoading, text = "Pobieranie meczów...") {
@@ -60,6 +72,36 @@ function setLoadingState(isLoading, text = "Pobieranie meczów...") {
   if (elements.refreshButton) {
     elements.refreshButton.disabled = isLoading;
   }
+}
+
+function hideNewDataBadge() {
+  if (state.newDataBadgeTimeoutId) {
+    clearTimeout(state.newDataBadgeTimeoutId);
+    state.newDataBadgeTimeoutId = null;
+  }
+  if (!elements.newDataBadge) {
+    return;
+  }
+  elements.newDataBadge.hidden = true;
+  elements.newDataBadge.textContent = "";
+}
+
+function showNewDataBadge(newMatchesCount) {
+  if (!elements.newDataBadge || newMatchesCount <= 0) {
+    return;
+  }
+
+  if (state.newDataBadgeTimeoutId) {
+    clearTimeout(state.newDataBadgeTimeoutId);
+  }
+
+  const suffix = newMatchesCount === 1 ? "nowy wynik" : "nowe wyniki";
+  elements.newDataBadge.textContent = `+${newMatchesCount} ${suffix}`;
+  elements.newDataBadge.hidden = false;
+
+  state.newDataBadgeTimeoutId = setTimeout(() => {
+    hideNewDataBadge();
+  }, NEW_DATA_BADGE_DURATION_MS);
 }
 
 function normalize(text) {
@@ -333,6 +375,96 @@ function calculatePointsForMatch(match) {
   return { winnerPoints: 0, loserPoints: 0 };
 }
 
+function buildHistoricalLeagueStrengthModel(matches) {
+  if (!matches.length) {
+    return {
+      byPlayer: {},
+      avgPointsPerMatchPerPlayer: 2.5,
+    };
+  }
+
+  const statsByPlayer = new Map();
+  let totalWinnerPoints = 0;
+  let totalLoserPoints = 0;
+
+  for (const match of matches) {
+    const winner = ensureStats(statsByPlayer, match.winner);
+    const loser = ensureStats(statsByPlayer, match.loser);
+    const points = calculatePointsForMatch(match);
+
+    winner.played += 1;
+    winner.points += points.winnerPoints;
+    loser.played += 1;
+    loser.points += points.loserPoints;
+
+    totalWinnerPoints += points.winnerPoints;
+    totalLoserPoints += points.loserPoints;
+  }
+
+  const byPlayer = {};
+  for (const entry of statsByPlayer.values()) {
+    byPlayer[entry.player] = entry.played > 0 ? entry.points / entry.played : 0;
+  }
+
+  return {
+    byPlayer,
+    avgPointsPerMatchPerPlayer: (totalWinnerPoints + totalLoserPoints) / (2 * matches.length),
+  };
+}
+
+function buildPointsOutcomeProfile(matches) {
+  const counts = {
+    win: { 3: 1, 4: 1, 5: 1 },
+    loss: { 1: 1, 2: 1 },
+  };
+
+  for (const match of matches) {
+    const points = calculatePointsForMatch(match);
+    if (points.winnerPoints >= 3 && points.winnerPoints <= 5) {
+      counts.win[points.winnerPoints] += 1;
+    }
+    if (points.loserPoints === 1 || points.loserPoints === 2) {
+      counts.loss[points.loserPoints] += 1;
+    }
+  }
+
+  const winTotal = counts.win[3] + counts.win[4] + counts.win[5];
+  const lossTotal = counts.loss[1] + counts.loss[2];
+
+  return {
+    win: {
+      3: counts.win[3] / winTotal,
+      4: counts.win[4] / winTotal,
+      5: counts.win[5] / winTotal,
+    },
+    loss: {
+      1: counts.loss[1] / lossTotal,
+      2: counts.loss[2] / lossTotal,
+    },
+  };
+}
+
+function pickMostLikelyPointsForMatch(winChance, pointsProfile) {
+  const probabilities = {
+    1: (1 - winChance) * pointsProfile.loss[1],
+    2: (1 - winChance) * pointsProfile.loss[2],
+    3: winChance * pointsProfile.win[3],
+    4: winChance * pointsProfile.win[4],
+    5: winChance * pointsProfile.win[5],
+  };
+
+  let bestPoints = 1;
+  for (const candidate of [2, 3, 4, 5]) {
+    if (probabilities[candidate] > probabilities[bestPoints]) {
+      bestPoints = candidate;
+    } else if (probabilities[candidate] === probabilities[bestPoints] && candidate > bestPoints) {
+      bestPoints = candidate;
+    }
+  }
+
+  return bestPoints;
+}
+
 function ensureStats(map, player) {
   if (!map.has(player)) {
     map.set(player, {
@@ -350,7 +482,9 @@ function ensureStats(map, player) {
   return map.get(player);
 }
 
-function buildStandings(matches) {
+function buildStandings(matches, options = {}) {
+  const historicalStrengthByPlayer = options.historicalStrengthByPlayer || {};
+  const historicalLeagueAvgPointsPerMatch = options.historicalLeagueAvgPointsPerMatch || 2.5;
   const table = new Map();
   const opponentsMap = new Map();
   let totalWinnerPoints = 0;
@@ -393,10 +527,7 @@ function buildStandings(matches) {
   }
 
   const participantsCount = table.size;
-  const avgWinnerPoints = matches.length > 0 ? totalWinnerPoints / matches.length : 4;
-  const avgLoserPoints = matches.length > 0 ? totalLoserPoints / matches.length : 1.5;
-  const totalPossibleMatches = participantsCount > 1 ? (participantsCount * (participantsCount - 1)) / 2 : 0;
-  const leagueCompletion = totalPossibleMatches > 0 ? matches.length / totalPossibleMatches : 1;
+  const pointsProfile = buildPointsOutcomeProfile(matches);
   const leagueAvgPointsPerMatchPerPlayer = matches.length > 0
     ? (totalWinnerPoints + totalLoserPoints) / (2 * matches.length)
     : 2.5;
@@ -406,7 +537,19 @@ function buildStandings(matches) {
   }
 
   function pointsPerMatch(entry) {
-    return entry.played > 0 ? entry.points / entry.played : leagueAvgPointsPerMatchPerPlayer;
+    const currentPpm = entry.played > 0 ? entry.points / entry.played : leagueAvgPointsPerMatchPerPlayer;
+    const historicalPpm = historicalStrengthByPlayer[entry.player];
+    const leagueBaseline = leagueAvgPointsPerMatchPerPlayer * 0.7 + historicalLeagueAvgPointsPerMatch * 0.3;
+
+    if (typeof historicalPpm !== "number" || Number.isNaN(historicalPpm)) {
+      return currentPpm;
+    }
+
+    if (entry.played === 0) {
+      return leagueBaseline * 0.45 + historicalPpm * 0.55;
+    }
+
+    return currentPpm * 0.72 + historicalPpm * 0.28;
   }
 
   for (const entry of table.values()) {
@@ -418,28 +561,20 @@ function buildStandings(matches) {
       (name) => name !== entry.player && !playedOpponentsSet.has(name),
     );
 
-    const avgRemainingOpponentStrength = remainingOpponentsList.length > 0
-      ? remainingOpponentsList
-          .map((name) => pointsPerMatch(table.get(name)))
-          .reduce((sum, value) => sum + value, 0) / remainingOpponentsList.length
-      : leagueAvgPointsPerMatchPerPlayer;
-
     const playerWinRate = (entry.wins + 1) / (entry.played + 2);
     const playerStrength = pointsPerMatch(entry) / 5;
-    const opponentsStrength = avgRemainingOpponentStrength / 5;
-    const winChance = clamp(
-      0.12 + playerWinRate * 0.7 + (playerStrength - opponentsStrength) * 0.35,
-      0.03,
-      0.97,
-    );
-
-    const seasonActivity = participantsCount > 1 ? playedOpponents / (participantsCount - 1) : 1;
-    const completionFactor = clamp(0.1 + seasonActivity * 0.65 + leagueCompletion * 0.25, 0.1, 1);
-    const expectedPointsPerFutureMatch = winChance * avgWinnerPoints + (1 - winChance) * avgLoserPoints;
+    const projectedPointsFromRemaining = remainingOpponentsList.reduce((sum, opponentName) => {
+      const opponentStrength = pointsPerMatch(table.get(opponentName)) / 5;
+      const winChance = clamp(
+        0.12 + playerWinRate * 0.7 + (playerStrength - opponentStrength) * 0.35,
+        0.03,
+        0.97,
+      );
+      return sum + pickMostLikelyPointsForMatch(winChance, pointsProfile);
+    }, 0);
 
     entry.maxPoints = entry.points + remainingOpponents * 5;
-
-    entry.maxAvgPoints = entry.points + remainingOpponents * completionFactor * expectedPointsPerFutureMatch;
+    entry.maxAvgPoints = entry.points + projectedPointsFromRemaining;
   }
 
   return [...table.values()];
@@ -497,14 +632,15 @@ function sortStandings(standings) {
   });
 }
 
-function buildPositionChangeByPlayer(matches) {
+function buildPositionChangeByPlayer(matches, standingsOptions = {}) {
   if (matches.length < 2) {
     return {};
   }
 
   const matchesSortedByDateDesc = [...matches].sort((a, b) => b.date.localeCompare(a.date));
-  const currentStandings = buildStandings(matchesSortedByDateDesc).sort(defaultStandingsComparator);
-  const previousStandings = buildStandings(matchesSortedByDateDesc.slice(1)).sort(defaultStandingsComparator);
+  const currentStandings = buildStandings(matchesSortedByDateDesc, standingsOptions).sort(defaultStandingsComparator);
+  const previousStandings = buildStandings(matchesSortedByDateDesc.slice(1), standingsOptions)
+    .sort(defaultStandingsComparator);
 
   const previousPositionByPlayer = new Map(
     previousStandings.map((entry, index) => [entry.player, index + 1]),
@@ -544,6 +680,21 @@ function matchSignature(match) {
   return `${match.date}|${match.winner}|${match.loser}|${match.result.winnerSets}:${match.result.loserSets}`;
 }
 
+function countNewMatches(previousMatches, nextMatches) {
+  if (!previousMatches.length || !nextMatches.length) {
+    return 0;
+  }
+
+  const previousSignatures = new Set(previousMatches.map(matchSignature));
+  let newMatchesCount = 0;
+  for (const match of nextMatches) {
+    if (!previousSignatures.has(matchSignature(match))) {
+      newMatchesCount += 1;
+    }
+  }
+  return newMatchesCount;
+}
+
 function formatHistoryMatchForPlayer(match, player) {
   const isWinner = match.winner === player;
   const ownSets = isWinner ? match.result.winnerSets : match.result.loserSets;
@@ -567,7 +718,7 @@ function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {})
           <td><span class="position-cell"><span>${index + 1}</span>${positionTrend}</span></td>
           <td>${escapeHtml(titleCase(entry.player))}</td>
           <td><strong>${entry.points}</strong></td>
-          <td><strong>${entry.maxAvgPoints.toFixed(1)}</strong></td>
+          <td><strong>${entry.maxAvgPoints}</strong></td>
           <td>${entry.wins}</td>
           <td>${entry.losses}</td>
         </tr>
@@ -633,6 +784,10 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
 
   const items = remainingOpponents.map((opponent) => {
       const history = state.remainingHistoryByOpponent[opponent];
+      const predictedPoints = state.remainingPointsPredictionByOpponent[opponent];
+      const predictionLabel = typeof predictedPoints === "number"
+        ? `Pred pkt: ${predictedPoints}`
+        : "Pred pkt: -";
       let balanceLabel = '<span class="history-note">-</span>';
       let content = '<span class="history-note">Brak danych.</span>';
 
@@ -673,7 +828,10 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
         <div class="remaining-item">
           <div class="remaining-header" onclick="this.parentElement.classList.toggle('open')">
             <strong>${escapeHtml(titleCase(opponent))}</strong>
-            <span class="h2h-balance">${balanceLabel}</span>
+            <div class="remaining-header-metrics">
+              <span class="remaining-pred-points">${predictionLabel}</span>
+              <span class="h2h-balance">${balanceLabel}</span>
+            </div>
           </div>
           <div class="remaining-content">
             ${content}
@@ -684,6 +842,34 @@ function renderRemaining(remainingOpponents, selectedPlayer) {
     .join("");
 
   elements.remainingMatchesList.innerHTML = `<div class="remaining-accordion">${items}</div>`;
+}
+
+function renderPredictionInfo(playerSummary, selectedPlayer, remainingOpponentsCount) {
+  if (!elements.predictionInfoBox) {
+    return;
+  }
+
+  if (!selectedPlayer || !playerSummary) {
+    elements.predictionInfoBox.innerHTML = '<p class="hint">Wybierz zawodnika, aby zobaczyć predykcję punktów końcowych.</p>';
+    return;
+  }
+
+  const predicted = String(Math.round(Number(playerSummary.maxAvgPoints || 0)));
+  const current = String(Math.round(Number(playerSummary.points || 0)));
+  const maximum = String(Math.round(Number(playerSummary.maxPoints || 0)));
+  const endsWithOne = remainingOpponentsCount % 10 === 1 && remainingOpponentsCount % 100 !== 11;
+  const endsWithFew = [2, 3, 4].includes(remainingOpponentsCount % 10)
+    && ![12, 13, 14].includes(remainingOpponentsCount % 100);
+  const remainingLabel = endsWithOne ? "mecz" : (endsWithFew ? "mecze" : "meczów");
+
+  elements.predictionInfoBox.innerHTML = `
+    <p class="prediction-main">
+      Predykcja końcowej liczby punktów: <strong>${predicted} pkt</strong>
+    </p>
+    <p class="prediction-details">
+      Obecnie: ${current} pkt | Matematyczne maksimum: ${maximum} pkt | Pozostałe mecze: ${remainingOpponentsCount} ${remainingLabel}
+    </p>
+  `;
 }
 
 function fillSelect(select, options, selectedValue, placeholder = "") {
@@ -701,11 +887,16 @@ function fillSelect(select, options, selectedValue, placeholder = "") {
 
 function resetTablesForMissingSelection(message) {
   elements.statusText.textContent = message;
+  hideNewDataBadge();
+  state.remainingPointsPredictionByOpponent = {};
   updateSelectedPlayerHeading("");
   elements.standingsBody.innerHTML = '<tr><td colspan="6">Wybierz sezon i ligę.</td></tr>';
   elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Wybierz zawodnika.</td></tr>';
   elements.allMatchesBody.innerHTML = '<tr><td colspan="4">Wybierz sezon i ligę.</td></tr>';
   elements.remainingMatchesList.innerHTML = "";
+  if (elements.predictionInfoBox) {
+    elements.predictionInfoBox.innerHTML = '<p class="hint">Wybierz sezon, ligę i zawodnika.</p>';
+  }
   elements.playedCount.textContent = "0";
   elements.playerPoints.textContent = "0";
   elements.remainingCount.textContent = "0";
@@ -762,6 +953,51 @@ async function fetchMatchesForLeague(seasonId, leagueId) {
   const html = await postForm(API_MATCHES_URL, payload);
 
   return parseMatches(htmlToDocument(html));
+}
+
+async function fetchHistoricalLeagueStrength(leagueId) {
+  if (!leagueId) {
+    return {
+      byPlayer: {},
+      avgPointsPerMatchPerPlayer: 2.5,
+    };
+  }
+
+  if (state.historicalStrengthByLeagueId[leagueId]) {
+    return state.historicalStrengthByLeagueId[leagueId];
+  }
+
+  if (state.shareMode) {
+    const fallback = {
+      byPlayer: {},
+      avgPointsPerMatchPerPlayer: 2.5,
+    };
+    state.historicalStrengthByLeagueId[leagueId] = fallback;
+    return fallback;
+  }
+
+  try {
+    const defaults = state.formDefaults || {};
+    const payload = new URLSearchParams();
+    payload.append("show_strona", defaults.show_strona || "1");
+    payload.append("id_sezon", "");
+    payload.append("id_liga", leagueId);
+    payload.append("id_gracz", "");
+    payload.append("id_gracz2", "");
+    payload.append("sort", defaults.sort || "data DESC");
+    payload.append("limit", "2500");
+    payload.append("show", defaults.show || "go");
+
+    const html = await postForm(API_MATCHES_URL, payload);
+    const model = buildHistoricalLeagueStrengthModel(parseMatches(htmlToDocument(html)));
+    state.historicalStrengthByLeagueId[leagueId] = model;
+    return model;
+  } catch {
+    return {
+      byPlayer: {},
+      avgPointsPerMatchPerPlayer: 2.5,
+    };
+  }
 }
 
 async function fetchHeadToHeadHistory(playerAId, playerBId) {
@@ -893,12 +1129,27 @@ async function refreshLeagueData(preferredPlayer = "", options = {}) {
     return;
   }
 
+  hideNewDataBadge();
   setLoadingState(true, options.statusText || "Pobieranie meczów...");
 
   try {
+    const seasonId = state.season.value;
+    const leagueId = state.selectedLeagueId;
+    const isSameContextAsLastLoad = state.loadedContext.seasonId === seasonId
+      && state.loadedContext.leagueId === leagueId;
+    const previousMatches = state.matches;
     const selectedLeague = state.leagues.find((league) => league.value === state.selectedLeagueId);
 
-    state.matches = await fetchMatchesForLeague(state.season.value, state.selectedLeagueId);
+    const [nextMatches, historicalLeagueStrength] = await Promise.all([
+      fetchMatchesForLeague(seasonId, leagueId),
+      fetchHistoricalLeagueStrength(leagueId),
+    ]);
+    const newMatchesCount = isSameContextAsLastLoad ? countNewMatches(previousMatches, nextMatches) : 0;
+
+    state.matches = nextMatches;
+    state.loadedContext = { seasonId, leagueId };
+    state.historicalLeagueStrengthByPlayer = historicalLeagueStrength.byPlayer || {};
+    state.historicalLeagueAvgPointsPerMatch = historicalLeagueStrength.avgPointsPerMatchPerPlayer || 2.5;
     const participants = getParticipants(state.matches);
     state.selectedPlayer = preferredPlayer && participants.includes(preferredPlayer)
       ? preferredPlayer
@@ -911,6 +1162,9 @@ async function refreshLeagueData(preferredPlayer = "", options = {}) {
     );
 
     updateDashboard(selectedLeague?.label || "");
+    if (newMatchesCount > 0) {
+      showNewDataBadge(newMatchesCount);
+    }
     saveSelections();
   } finally {
     setLoadingState(false);
@@ -938,6 +1192,71 @@ function triggerAutoRefresh() {
   refreshLeagueData(state.selectedPlayer, { statusText: "Odświeżanie danych..." });
 }
 
+function getStandingsModelOptions() {
+  return {
+    historicalStrengthByPlayer: state.historicalLeagueStrengthByPlayer,
+    historicalLeagueAvgPointsPerMatch: state.historicalLeagueAvgPointsPerMatch,
+  };
+}
+
+function calculateExpectedPointsByOpponent(matches, standings, selectedPlayer, remainingOpponents, modelOptions = {}) {
+  const result = {};
+  if (!selectedPlayer || !remainingOpponents.length) {
+    return result;
+  }
+
+  const historicalStrengthByPlayer = modelOptions.historicalStrengthByPlayer || {};
+  const historicalLeagueAvgPointsPerMatch = modelOptions.historicalLeagueAvgPointsPerMatch || 2.5;
+  const pointsProfile = buildPointsOutcomeProfile(matches);
+  const standingsByPlayer = new Map(standings.map((entry) => [entry.player, entry]));
+  const selectedEntry = standingsByPlayer.get(selectedPlayer);
+  if (!selectedEntry) {
+    return result;
+  }
+
+  const totalByMatch = matches.reduce((sum, match) => {
+    const points = calculatePointsForMatch(match);
+    return sum + points.winnerPoints + points.loserPoints;
+  }, 0);
+  const leagueAvgPointsPerMatchPerPlayer = matches.length > 0
+    ? totalByMatch / (2 * matches.length)
+    : 2.5;
+
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+
+  function blendedPointsPerMatch(player) {
+    const entry = standingsByPlayer.get(player);
+    const currentPpm = entry?.played > 0 ? entry.points / entry.played : leagueAvgPointsPerMatchPerPlayer;
+    const historicalPpm = historicalStrengthByPlayer[player];
+    const leagueBaseline = leagueAvgPointsPerMatchPerPlayer * 0.7 + historicalLeagueAvgPointsPerMatch * 0.3;
+
+    if (typeof historicalPpm !== "number" || Number.isNaN(historicalPpm)) {
+      return currentPpm;
+    }
+    if (!entry || entry.played === 0) {
+      return leagueBaseline * 0.45 + historicalPpm * 0.55;
+    }
+    return currentPpm * 0.72 + historicalPpm * 0.28;
+  }
+
+  const playerWinRate = (selectedEntry.wins + 1) / (selectedEntry.played + 2);
+  const playerStrength = blendedPointsPerMatch(selectedPlayer) / 5;
+
+  for (const opponent of remainingOpponents) {
+    const opponentStrength = blendedPointsPerMatch(opponent) / 5;
+    const winChance = clamp(
+      0.12 + playerWinRate * 0.7 + (playerStrength - opponentStrength) * 0.35,
+      0.03,
+      0.97,
+    );
+    result[opponent] = pickMostLikelyPointsForMatch(winChance, pointsProfile);
+  }
+
+  return result;
+}
+
 function updateDashboard(leagueLabel, options = {}) {
   const skipHistoryLoad = Boolean(options.skipHistoryLoad);
   const selectedPlayer = state.selectedPlayer;
@@ -945,9 +1264,9 @@ function updateDashboard(leagueLabel, options = {}) {
   updateSelectedPlayerHeading(selectedPlayer);
 
   const standings = sortStandings(
-    buildStandings(matches),
+    buildStandings(matches, getStandingsModelOptions()),
   );
-  const positionChangeByPlayer = buildPositionChangeByPlayer(matches);
+  const positionChangeByPlayer = buildPositionChangeByPlayer(matches, getStandingsModelOptions());
   renderStandings(standings, selectedPlayer, positionChangeByPlayer);
 
   const playerMatches = selectedPlayer
@@ -965,8 +1284,16 @@ function updateDashboard(leagueLabel, options = {}) {
   const remainingOpponents = participants
     .filter((name) => name !== selectedPlayer)
     .filter((name) => !playedOpponents.has(name));
+  state.remainingPointsPredictionByOpponent = calculateExpectedPointsByOpponent(
+    matches,
+    standings,
+    selectedPlayer,
+    remainingOpponents,
+    getStandingsModelOptions(),
+  );
   if (!selectedPlayer) {
     state.remainingHistoryByOpponent = {};
+    state.remainingPointsPredictionByOpponent = {};
     elements.remainingMatchesList.innerHTML = '<p class="hint">Wybierz zawodnika, aby zobaczyć pozostałe mecze.</p>';
   } else {
     if (!skipHistoryLoad) {
@@ -980,6 +1307,7 @@ function updateDashboard(leagueLabel, options = {}) {
 
   const playerSummary = standings.find((entry) => entry.player === selectedPlayer);
   const playerPosition = standings.findIndex((entry) => entry.player === selectedPlayer);
+  renderPredictionInfo(playerSummary, selectedPlayer, remainingOpponents.length);
   elements.playedCount.textContent = String(playerMatches.length);
   elements.playerPoints.textContent = String(playerSummary?.points ?? 0);
   elements.remainingCount.textContent = String(remainingOpponents.length);
