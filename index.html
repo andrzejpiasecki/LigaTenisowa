@@ -71,7 +71,10 @@
     <section class="panel" aria-label="Tabela ligowa">
       <div class="panel-head">
         <h2>Tabela</h2>
-        <p id="statusText">Ładowanie...</p>
+        <div class="status-group">
+          <p id="statusText">Ładowanie...</p>
+          <span id="newDataBadge" class="new-data-badge" hidden></span>
+        </div>
       </div>
       <div class="table-wrap">
         <table id="standingsTable">
@@ -109,6 +112,7 @@
     <section class="panel" aria-label="Mecze pozostałe">
       <h2>Mecze pozostałe do rozegrania</h2>
       <div id="remainingMatchesList"></div>
+      <div id="predictionInfoBox" class="prediction-info-box"></div>
     </section>
 
     <section class="panel" aria-label="Wszystkie mecze">
