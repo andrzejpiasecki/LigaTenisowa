@@ -353,9 +353,10 @@ tbody tr:hover {
 
 .remaining-header {
   padding: 0.85rem 0.5rem;
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
+  column-gap: 1rem;
   cursor: pointer;
   user-select: none;
   background: transparent;
@@ -366,18 +367,32 @@ tbody tr:hover {
   background: #f4f9f2;
 }
 
-.remaining-header strong {
+.remaining-header .remaining-opponent {
   font-size: 1.05rem;
   color: var(--brand-strong);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .remaining-header .h2h-balance {
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   color: var(--muted);
   font-weight: 600;
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  justify-self: end;
+  white-space: nowrap;
+}
+
+.remaining-header .remaining-prediction {
+  font-size: 0.82rem;
+  color: #1f6a3a;
+  font-weight: 700;
+  justify-self: end;
+  white-space: nowrap;
 }
 
 .remaining-header .h2h-balance::after {
@@ -406,6 +421,28 @@ tbody tr:hover {
 .remaining-content table {
   background: #fafcf9;
   border-radius: 8px;
+}
+
+.remaining-summary {
+  margin-top: 0.9rem;
+  background: #ecf1ed;
+  border: 1px solid #c5d4c7;
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+}
+
+.remaining-summary-title {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 700;
+  color: #184f2e;
+}
+
+.remaining-summary-details {
+  margin: 0.2rem 0 0;
+  color: #3c5f49;
+  font-size: 0.8rem;
+  font-weight: 500;
 }
 
 
