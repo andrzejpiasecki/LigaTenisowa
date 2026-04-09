@@ -445,6 +445,36 @@ tbody tr:hover {
   font-weight: 500;
 }
 
+.h2h-details {
+  width: max-content;
+}
+
+.h2h-details summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.h2h-details .table-wrap {
+  margin-top: 0.35rem;
+}
+
+.h2h-details table {
+  min-width: 180px;
+}
+
+.h2h-results {
+  margin: 0.35rem 0 0;
+  padding-left: 1rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.h2h-results li {
+  list-style: disc;
+  margin: 0.1rem 0;
+}
+
 
 .history-note {
   color: var(--muted);
@@ -509,7 +539,32 @@ tbody tr:hover {
   #allMatchesTable td:nth-child(2),
   #allMatchesTable th:nth-child(3),
   #allMatchesTable td:nth-child(3) {
-    min-width: 9rem;
+    min-width: 0;
+  }
+
+  #allMatchesTable {
+    table-layout: fixed;
+  }
+
+  #allMatchesTable th:nth-child(1),
+  #allMatchesTable td:nth-child(1) {
+    width: 5.8rem;
+  }
+
+  #allMatchesTable th:nth-child(2),
+  #allMatchesTable td:nth-child(2),
+  #allMatchesTable th:nth-child(3),
+  #allMatchesTable td:nth-child(3),
+  #allMatchesTable th:nth-child(4),
+  #allMatchesTable td:nth-child(4) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
+  #allMatchesTable th:nth-child(4),
+  #allMatchesTable td:nth-child(4) {
+    width: 6.4rem;
   }
 
   .remaining-content .table-wrap table {

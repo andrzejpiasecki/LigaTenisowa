@@ -419,18 +419,20 @@ function estimatePlayableFutureMatches(entry, remainingMatchesLimit, seasonBound
   const seasonDays = Math.max(1, Math.ceil((endUtc - startUtc) / MS_PER_DAY));
   const progress = clampNumber(elapsedDays / seasonDays, 0, 1);
   const observedPacePerDay = entry.played / elapsedDays;
-  const baselinePacePerDay = entry.played > 0 ? observedPacePerDay : 0.08;
+  const priorPacePerDay = 0.055;
+  const paceConfidence = clampNumber(entry.played / 8, 0, 1);
+  const baselinePacePerDay = priorPacePerDay * (1 - paceConfidence) + observedPacePerDay * paceConfidence;
   const remainingLoadRatio = remainingMatchesLimit / Math.max(1, MAX_MATCHES_PER_PLAYER_PER_SEASON);
   const urgency = clampNumber((progress - 0.55) / 0.45, 0, 1);
-  const mobilizationBoost = 1 + urgency * (0.3 + remainingLoadRatio * 0.9);
-  const boostedPacePerDay = baselinePacePerDay * mobilizationBoost;
-  const requiredPacePerDay = remainingMatchesLimit / remainingDays;
-  const blendWeight = 0.2 + urgency * 0.55;
-  const blendedPacePerDay = boostedPacePerDay * (1 - blendWeight) + requiredPacePerDay * blendWeight;
-  let projectedPlayable = Math.ceil(blendedPacePerDay * remainingDays);
+  const mobilizationBoost = 1 + urgency * (0.24 + remainingLoadRatio * 0.55);
+  const reportingLagBoost = 1.12;
+  const catchUpBonus = urgency * remainingLoadRatio * 1.8;
+  let projectedPlayable = Math.round(
+    baselinePacePerDay * mobilizationBoost * reportingLagBoost * remainingDays + catchUpBonus,
+  );
 
-  if (urgency > 0.8 && remainingMatchesLimit > 1) {
-    projectedPlayable = Math.max(projectedPlayable, Math.ceil(remainingMatchesLimit * 0.65));
+  if (urgency > 0.45 && remainingMatchesLimit >= 2) {
+    projectedPlayable = Math.max(projectedPlayable, 2);
   }
 
   return clampNumber(projectedPlayable, 0, remainingMatchesLimit);
@@ -451,6 +453,75 @@ function calculateExpectedPointsPerFutureMatch(
   const calibratedWinPoints = clampNumber(avgWinnerPoints * 0.4 + winPointsModel * 0.6, 3, 5);
   const calibratedLossPoints = clampNumber(avgLoserPoints * 0.4 + lossPointsModel * 0.6, 1, 2);
   return winChance * calibratedWinPoints + (1 - winChance) * calibratedLossPoints;
+}
+
+function calculateHeadToHeadAdjustment(selectedPlayer, opponent, pairMatches) {
+  if (!selectedPlayer || !opponent || !pairMatches.length) {
+    return {
+      pointsAdjustment: 0,
+      dominance: 0,
+      confidence: 0,
+    };
+  }
+
+  const now = new Date();
+  const nowUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  let weightedOutcomeScore = 0;
+  let weightedSetScore = 0;
+  let weightedGameScore = 0;
+  let totalWeight = 0;
+
+  for (const match of pairMatches) {
+    const matchDate = parseIsoDate(match.date);
+    if (!matchDate) {
+      continue;
+    }
+
+    const ageDays = Math.max(0, Math.floor((nowUtc - matchDate.getTime()) / MS_PER_DAY));
+    const recencyWeight = Math.exp(-ageDays / 365);
+    const outcome = match.winner === selectedPlayer ? 1 : (match.loser === selectedPlayer ? -1 : 0);
+    if (outcome === 0) {
+      continue;
+    }
+
+    const ownSets = outcome > 0 ? match.result.winnerSets : match.result.loserSets;
+    const oppSets = outcome > 0 ? match.result.loserSets : match.result.winnerSets;
+    const setDiff = clampNumber((ownSets - oppSets) / 2, -1, 1);
+    const ownGames = (match.sets || []).reduce((sum, set) => sum + (outcome > 0 ? set.first : set.second), 0);
+    const oppGames = (match.sets || []).reduce((sum, set) => sum + (outcome > 0 ? set.second : set.first), 0);
+    const gamesTotal = Math.max(1, ownGames + oppGames);
+    const gameDiff = clampNumber((ownGames - oppGames) / gamesTotal, -1, 1);
+
+    weightedOutcomeScore += outcome * recencyWeight;
+    weightedSetScore += setDiff * recencyWeight;
+    weightedGameScore += gameDiff * recencyWeight;
+    totalWeight += recencyWeight;
+  }
+
+  if (totalWeight <= 0) {
+    return {
+      pointsAdjustment: 0,
+      dominance: 0,
+      confidence: 0,
+    };
+  }
+
+  const normalizedOutcome = weightedOutcomeScore / totalWeight;
+  const normalizedSet = weightedSetScore / totalWeight;
+  const normalizedGames = weightedGameScore / totalWeight;
+  const dominance = clampNumber(
+    normalizedOutcome * 0.6 + normalizedSet * 0.25 + normalizedGames * 0.15,
+    -1,
+    1,
+  );
+  const confidence = clampNumber(totalWeight / 2, 0, 1);
+  const pointsAdjustment = dominance * confidence * 1.45;
+
+  return {
+    pointsAdjustment,
+    dominance,
+    confidence,
+  };
 }
 
 function ensureStats(map, player) {
@@ -714,7 +785,30 @@ function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, 
       avgWinnerPoints,
       avgLoserPoints,
     );
-    result[opponent] = Math.round(expectedPoints);
+    const pairCurrentSeasonMatches = matches.filter(
+      (match) =>
+        (match.winner === selectedPlayer && match.loser === opponent)
+        || (match.winner === opponent && match.loser === selectedPlayer),
+    );
+    const pairHistoricalMatches = state.remainingHistoryByOpponent[opponent]?.matches || [];
+    const allPairMatchesBySignature = new Map();
+    for (const match of [...pairCurrentSeasonMatches, ...pairHistoricalMatches]) {
+      allPairMatchesBySignature.set(matchSignature(match), match);
+    }
+    const h2h = calculateHeadToHeadAdjustment(
+      selectedPlayer,
+      opponent,
+      [...allPairMatchesBySignature.values()],
+    );
+    let adjustedExpected = expectedPoints + h2h.pointsAdjustment;
+    if (h2h.confidence > 0.4 && h2h.dominance <= -0.65) {
+      adjustedExpected = Math.min(adjustedExpected, 2.2);
+    } else if (h2h.confidence > 0.3 && h2h.dominance <= -0.4) {
+      adjustedExpected = Math.min(adjustedExpected, 2.6);
+    } else if (h2h.confidence > 0.4 && h2h.dominance >= 0.65) {
+      adjustedExpected = Math.max(adjustedExpected, 3.5);
+    }
+    result[opponent] = Math.round(clampNumber(adjustedExpected, 1, 5));
   }
 
   return result;
@@ -722,13 +816,6 @@ function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, 
 
 function matchSignature(match) {
   return `${match.date}|${match.winner}|${match.loser}|${match.result.winnerSets}:${match.result.loserSets}`;
-}
-
-function formatHistoryMatchForPlayer(match, player) {
-  const isWinner = match.winner === player;
-  const ownSets = isWinner ? match.result.winnerSets : match.result.loserSets;
-  const oppSets = isWinner ? match.result.loserSets : match.result.winnerSets;
-  return `${match.date} (${ownSets}:${oppSets})`;
 }
 
 function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {}) {
@@ -823,61 +910,65 @@ function renderRemaining(remainingOpponents, selectedPlayer, remainingPrediction
     return;
   }
 
-  const items = remainingOpponents.map((opponent) => {
-      const history = state.remainingHistoryByOpponent[opponent];
-      const prediction = remainingPredictionByOpponent[opponent];
-      let balanceLabel = '<span class="history-note">-</span>';
-      let content = '<span class="history-note">Brak danych.</span>';
+  const rows = remainingOpponents.map((opponent) => {
+    const history = state.remainingHistoryByOpponent[opponent];
+    const prediction = remainingPredictionByOpponent[opponent] ?? 0;
+    let h2hCell = '<span class="history-note">-</span>';
 
-      if (history?.loading) {
-        content = '<div class="panel-head"><p id="statusText">Ładowanie danych historycznych...</p></div>';
-      } else if (history?.error) {
-        content = '<p class="hint">Błąd pobierania danych historycznych.</p>';
-      } else if (history?.matches) {
-        if (history.matches.length === 0) {
-          balanceLabel = 'Bilans H2H: 0-0';
-          content = '<p class="history-note">Brak wcześniejszych meczów z tym graczem w systemie.</p>';
-        } else {
-          const wins = history.matches.filter((match) => match.winner === selectedPlayer).length;
-          const losses = history.matches.length - wins;
-          balanceLabel = `Bilans H2H: ${wins}-${losses}`;
-
-          const historyRows = history.matches
-            .map((match) => renderMatchRow(match, selectedPlayer, false))
-            .join("");
-
-          content = `
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Data</th>
-                    <th>Wynik</th>
-                  </tr>
-                </thead>
-                <tbody>${historyRows}</tbody>
-              </table>
-            </div>
-          `;
-        }
+    if (history?.loading) {
+      h2hCell = '<span class="history-note">Ładowanie...</span>';
+    } else if (history?.error) {
+      h2hCell = '<span class="hint">Błąd danych</span>';
+    } else if (history?.matches) {
+      const wins = history.matches.filter((match) => match.winner === selectedPlayer).length;
+      const losses = history.matches.length - wins;
+      if (history.matches.length === 0) {
+        h2hCell = '<span class="history-note">Bilans 0-0</span>';
+      } else {
+        const historyItems = history.matches
+          .map((match) => {
+            const isWinner = match.winner === selectedPlayer;
+            const ownSets = isWinner ? match.result.winnerSets : match.result.loserSets;
+            const oppSets = isWinner ? match.result.loserSets : match.result.winnerSets;
+            const gamesDetails = (match.sets || [])
+              .map((set) => (isWinner ? `${set.first}:${set.second}` : `${set.second}:${set.first}`))
+              .join(", ");
+            const scoreText = `${ownSets}:${oppSets}${gamesDetails ? ` (${gamesDetails})` : ""}`;
+            return `<li>${scoreText}</li>`;
+          })
+          .join("");
+        h2hCell = `
+          <span class="history-note">Bilans ${wins}-${losses}</span>
+          <ul class="h2h-results">${historyItems}</ul>
+        `;
       }
+    }
 
-      return `
-        <div class="remaining-item">
-          <div class="remaining-header" onclick="this.parentElement.classList.toggle('open')">
-            <strong class="remaining-opponent">${escapeHtml(titleCase(opponent))}</strong>
-            <span class="remaining-prediction">Pred pkt: ${prediction ?? 0}</span>
-            <span class="h2h-balance">${balanceLabel}</span>
-          </div>
-          <div class="remaining-content">
-            ${content}
-          </div>
-        </div>
-      `;
-    })
-    .join("");
+    return `
+      <tr>
+        <td>${escapeHtml(titleCase(opponent))}</td>
+        <td><strong>${prediction}</strong></td>
+        <td>${h2hCell}</td>
+      </tr>
+    `;
+  }).join("");
 
-  elements.remainingMatchesList.innerHTML = `<div class="remaining-accordion">${items}</div>${summary}`;
+  const table = `
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>Przeciwnik</th>
+            <th>Prog.</th>
+            <th>Bilans H2H</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+
+  elements.remainingMatchesList.innerHTML = `${table}${summary}`;
 }
 
 function formatMatchesWord(count) {
@@ -1210,9 +1301,10 @@ function updateDashboard(leagueLabel, options = {}) {
   const playerSummary = standings.find((entry) => entry.player === selectedPlayer);
   const playerPosition = standings.findIndex((entry) => entry.player === selectedPlayer);
   const currentPoints = playerSummary?.points ?? 0;
+  const totalMatchesForPlayer = (playerSummary?.played ?? 0) + (playerSummary?.remainingMatches ?? 0);
   elements.playedCount.textContent = String(playerMatches.length);
   elements.playerPoints.textContent = String(currentPoints);
-  elements.remainingCount.textContent = String(remainingOpponents.length);
+  elements.remainingCount.textContent = String(totalMatchesForPlayer);
   elements.playerPosition.textContent = playerPosition >= 0 ? String(playerPosition + 1) : "-";
   elements.playerSets.textContent = `${playerSummary?.setsWon ?? 0}:${playerSummary?.setsLost ?? 0}`;
   elements.statusText.textContent = `${state.season.label} | ${leagueLabel} | ${matches.length} meczów`;
