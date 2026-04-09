@@ -19,6 +19,8 @@ body {
   margin: 0;
   color: var(--text);
   font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+  height: 100vh;
+  overflow: hidden;
   background:
     radial-gradient(circle at 20% 10%, rgba(43, 122, 59, 0.16), transparent 42%),
     radial-gradient(circle at 85% 25%, rgba(217, 107, 39, 0.16), transparent 35%),
@@ -28,7 +30,11 @@ body {
 .page {
   width: min(1120px, 100% - 2rem);
   margin: 0 auto;
-  padding: 1rem 0 1.35rem;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  padding: 0.75rem 0;
+  overflow: hidden;
 }
 
 .hero {
@@ -37,6 +43,12 @@ body {
   border: 1px solid rgba(31, 91, 44, 0.18);
   background: linear-gradient(140deg, rgba(255, 255, 255, 0.96) 0%, rgba(236, 246, 231, 0.95) 100%);
   box-shadow: 0 7px 20px rgba(20, 51, 27, 0.09);
+}
+
+.content-scroll {
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: 0.6rem;
 }
 
 .hero-top {
@@ -566,7 +578,7 @@ tbody tr:hover {
   .page {
     width: 100%;
     margin: 0;
-    padding: 0.75rem 0.45rem;
+    padding: 0.55rem 0.45rem;
   }
 
   .hero {
