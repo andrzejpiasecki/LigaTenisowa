@@ -698,8 +698,13 @@ function buildPositionChangeByPlayer(matches) {
   }
 
   const matchesSortedByDateDesc = [...matches].sort((a, b) => b.date.localeCompare(a.date));
+  const latestMatchDate = matchesSortedByDateDesc[0]?.date;
+  const matchesBeforeLatestDate = matchesSortedByDateDesc.filter((match) => match.date !== latestMatchDate);
+  if (!matchesBeforeLatestDate.length) {
+    return {};
+  }
   const currentStandings = buildStandings(matchesSortedByDateDesc).sort(defaultStandingsComparator);
-  const previousStandings = buildStandings(matchesSortedByDateDesc.slice(1)).sort(defaultStandingsComparator);
+  const previousStandings = buildStandings(matchesBeforeLatestDate).sort(defaultStandingsComparator);
 
   const previousPositionByPlayer = new Map(
     previousStandings.map((entry, index) => [entry.player, index + 1]),
@@ -825,9 +830,9 @@ function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {})
       const selectedClass = entry.player === selectedPlayer ? "is-selected" : "";
       const positionChange = positionChangeByPlayer[entry.player] || 0;
       const positionTrend = positionChange > 0
-        ? '<span class="position-change up" aria-label="Pozycja poprawiła się od poprzedniego meczu">▲</span>'
+        ? '<span class="position-change up" aria-label="Pozycja poprawiła się względem poprzedniej kolejki">▲</span>'
         : positionChange < 0
-          ? '<span class="position-change down" aria-label="Pozycja pogorszyła się od poprzedniego meczu">▼</span>'
+          ? '<span class="position-change down" aria-label="Pozycja pogorszyła się względem poprzedniej kolejki">▼</span>'
           : "";
       return `
         <tr class="${selectedClass}" data-player="${escapeHtml(entry.player)}">
