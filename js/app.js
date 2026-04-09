@@ -46,7 +46,8 @@ const elements = {
   remainingCount: document.getElementById("remainingCount"),
   playerPosition: document.getElementById("playerPosition"),
   playerSets: document.getElementById("playerSets"),
-  selectedPlayerHeading: document.getElementById("selectedPlayerHeading"),
+  leagueHeading: document.getElementById("leagueHeading"),
+  headerPlayerName: document.getElementById("headerPlayerName"),
   statusText: document.getElementById("statusText"),
 };
 
@@ -118,15 +119,16 @@ function setControlsCollapsed(collapsed) {
   }
   elements.controlsContent.hidden = collapsed;
   elements.toggleControlsButton.setAttribute("aria-expanded", String(!collapsed));
-  elements.toggleControlsButton.textContent = collapsed ? "Rozwiń" : "Zwiń";
+  elements.toggleControlsButton.setAttribute("aria-label", collapsed ? "Otwórz opcje" : "Zamknij opcje");
+  elements.toggleControlsButton.classList.toggle("is-open", !collapsed);
 }
 
-function updateSelectedPlayerHeading(playerName) {
-  if (!elements.selectedPlayerHeading) {
+function updateHeaderHeading(leagueLabel, playerName) {
+  if (!elements.leagueHeading || !elements.headerPlayerName) {
     return;
   }
-  const label = playerName ? titleCase(playerName) : "-";
-  elements.selectedPlayerHeading.textContent = label;
+  elements.leagueHeading.textContent = leagueLabel || "-";
+  elements.headerPlayerName.textContent = playerName ? titleCase(playerName) : "-";
 }
 
 async function fetchHtml(url, params) {
@@ -1003,7 +1005,7 @@ function fillSelect(select, options, selectedValue, placeholder = "") {
 
 function resetTablesForMissingSelection(message) {
   elements.statusText.textContent = message;
-  updateSelectedPlayerHeading("");
+  updateHeaderHeading("", "");
   elements.standingsBody.innerHTML = '<tr><td colspan="6">Wybierz sezon i ligę.</td></tr>';
   elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Wybierz zawodnika.</td></tr>';
   elements.allMatchesBody.innerHTML = '<tr><td colspan="4">Wybierz sezon i ligę.</td></tr>';
@@ -1169,7 +1171,10 @@ async function initialize() {
   const context = await getInitialContext();
   state.playerIdByName = context.playerIdByName || {};
   const stored = loadSelections();
-  setControlsCollapsed(Boolean(stored.controlsCollapsed));
+  const initialControlsCollapsed = stored.controlsCollapsed === undefined
+    ? true
+    : Boolean(stored.controlsCollapsed);
+  setControlsCollapsed(initialControlsCollapsed);
   state.seasons = context.allSeasons;
 
   const selectedSeason = state.seasons.find((season) => season.value === stored.seasonId) || state.seasons[0] || null;
@@ -1260,7 +1265,7 @@ function updateDashboard(leagueLabel, options = {}) {
   const skipHistoryLoad = Boolean(options.skipHistoryLoad);
   const selectedPlayer = state.selectedPlayer;
   const matches = state.matches;
-  updateSelectedPlayerHeading(selectedPlayer);
+  updateHeaderHeading(leagueLabel, selectedPlayer);
 
   const standings = sortStandings(
     buildStandings(matches),
@@ -1370,9 +1375,11 @@ elements.standingsBody.addEventListener("click", (event) => {
   updateDashboard(league?.label || "");
 });
 
-elements.refreshButton.addEventListener("click", async () => {
-  await refreshLeagueData(state.selectedPlayer);
-});
+if (elements.refreshButton) {
+  elements.refreshButton.addEventListener("click", async () => {
+    await refreshLeagueData(state.selectedPlayer);
+  });
+}
 
 window.addEventListener("focus", () => {
   triggerAutoRefresh();
@@ -1396,6 +1403,39 @@ if (
     saveSelections();
   });
 }
+
+document.addEventListener("keydown", (event) => {
+  if (
+    event.key === "Escape"
+    && elements.controlsContent
+    && !elements.controlsContent.hidden
+  ) {
+    setControlsCollapsed(true);
+    saveSelections();
+  }
+});
+
+document.addEventListener("click", (event) => {
+  if (
+    !elements.controlsContent
+    || !elements.toggleControlsButton
+    || elements.controlsContent.hidden
+  ) {
+    return;
+  }
+
+  const clickTarget = event.target;
+  if (
+    !(clickTarget instanceof Element)
+    || elements.controlsContent.contains(clickTarget)
+    || elements.toggleControlsButton.contains(clickTarget)
+  ) {
+    return;
+  }
+
+  setControlsCollapsed(true);
+  saveSelections();
+});
 
 initialize().catch((error) => {
   elements.statusText.textContent = `Błąd: ${error.message}`;

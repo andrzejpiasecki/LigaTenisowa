@@ -14,59 +14,61 @@
 <body>
   <main class="page">
     <header class="hero">
-      <p class="eyebrow">Tenisv.pl</p>
-      <h1>Dashboard Ligi Tenisowej</h1>
-      <p class="subtitle">
-        <a
-        class="author-link"
-        target="_blank"
-        href="https://www.linkedin.com/in/andrzej-piasecki-9083a91/">
-        Autor
-      </a></p>
+      <div class="hero-top">
+        <h1>
+          <span id="headerPlayerName">-</span>
+          <span class="hero-separator" aria-hidden="true">|</span>
+          <span id="leagueHeading">-</span>
+        </h1>
+        <button
+          id="toggleControlsButton"
+          type="button"
+          class="menu-button"
+          aria-expanded="false"
+          aria-controls="controlsContent"
+          aria-label="Otwórz opcje">
+          <span class="menu-icon" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+        </button>
+      </div>
+      <div id="controlsContent" class="menu-panel" aria-label="Filtry">
+        <div class="controls-grid">
+          <label>
+            Sezon
+            <select id="seasonSelect"></select>
+          </label>
+          <label>
+            Liga
+            <select id="leagueSelect"></select>
+          </label>
+          <label>
+            Gracz
+            <select id="playerSelect"></select>
+          </label>
+        </div>
+        <div class="stats-grid menu-stats">
+        <article class="stat-card">
+          <h2>Mecze</h2>
+          <p class="split-stat"><span id="playedCount">0</span><span class="split-separator">/</span><span id="remainingCount">0</span></p>
+        </article>
+        <article class="stat-card">
+          <h2>Punkty</h2>
+          <p id="playerPoints">0</p>
+        </article>
+        <article class="stat-card">
+          <h2>Pozycja</h2>
+          <p id="playerPosition">-</p>
+        </article>
+        <article class="stat-card">
+          <h2>Sety</h2>
+          <p id="playerSets">0:0</p>
+        </article>
+        </div>
+      </div>
     </header>
-
-    <section class="panel controls" aria-label="Filtry">
-      <div class="panel-head">
-        <h2>Opcje</h2>
-        <button id="toggleControlsButton" type="button" class="toggle-button" aria-expanded="true">Zwiń</button>
-      </div>
-      <div id="controlsContent" class="controls-grid">
-        <label>
-          Sezon
-          <select id="seasonSelect"></select>
-        </label>
-        <label>
-          Liga
-          <select id="leagueSelect"></select>
-        </label>
-        <label>
-          Gracz
-          <select id="playerSelect"></select>
-        </label>
-        <button id="refreshButton" type="button">Odśwież dane</button>
-      </div>
-    </section>
-
-    <h2 id="selectedPlayerHeading" class="selected-player-heading">-</h2>
-
-    <section class="stats-grid" aria-label="Podsumowanie gracza">
-      <article class="stat-card">
-        <h2>Mecze</h2>
-        <p class="split-stat"><span id="playedCount">0</span><span class="split-separator">/</span><span id="remainingCount">0</span></p>
-      </article>
-      <article class="stat-card">
-        <h2>Punkty</h2>
-        <p id="playerPoints">0</p>
-      </article>
-      <article class="stat-card">
-        <h2>Pozycja</h2>
-        <p id="playerPosition">-</p>
-      </article>
-      <article class="stat-card">
-        <h2>Sety</h2>
-        <p id="playerSets">0:0</p>
-      </article>
-    </section>
 
     <section class="panel" aria-label="Tabela ligowa">
       <div class="panel-head">
