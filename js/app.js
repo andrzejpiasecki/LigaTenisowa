@@ -827,14 +827,29 @@ function matchSignature(match) {
 
 function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {}) {
   updateSortHeaders();
+  const getPlaceWord = (value) => {
+    const lastTwo = value % 100;
+    if (lastTwo >= 12 && lastTwo <= 14) {
+      return "miejsc";
+    }
+    const lastDigit = value % 10;
+    if (lastDigit === 1) {
+      return "miejsce";
+    }
+    if (lastDigit >= 2 && lastDigit <= 4) {
+      return "miejsca";
+    }
+    return "miejsc";
+  };
   const rows = standings
     .map((entry, index) => {
       const selectedClass = entry.player === selectedPlayer ? "is-selected" : "";
       const positionChange = positionChangeByPlayer[entry.player] || 0;
+      const positionShift = Math.abs(positionChange);
       const positionTrend = positionChange > 0
-        ? '<span class="position-change up" aria-label="Pozycja poprawiła się względem poprzedniej kolejki">▲</span>'
+        ? `<span class="position-change up" aria-label="Pozycja poprawiła się o ${positionShift} ${getPlaceWord(positionShift)} względem poprzedniej kolejki">+${positionShift}</span>`
         : positionChange < 0
-          ? '<span class="position-change down" aria-label="Pozycja pogorszyła się względem poprzedniej kolejki">▼</span>'
+          ? `<span class="position-change down" aria-label="Pozycja pogorszyła się o ${positionShift} ${getPlaceWord(positionShift)} względem poprzedniej kolejki">-${positionShift}</span>`
           : "";
       return `
         <tr class="${selectedClass}" data-player="${escapeHtml(entry.player)}">
