@@ -3,7 +3,6 @@ const API_MATCHES_URL = "/api/mecze/mecze_lista.php";
 const SHARE_DATA = typeof window !== "undefined" ? window.__SHARE_DATA || null : null;
 const STORAGE_KEY = "liga-dashboard-selections";
 const AUTO_REFRESH_THROTTLE_MS = 2500;
-const MAX_MATCHES_PER_PLAYER_PER_SEASON = 15;
 const SEASON_START_MONTHS = [1, 4, 7, 10];
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -48,6 +47,7 @@ const elements = {
   playerSets: document.getElementById("playerSets"),
   leagueHeading: document.getElementById("leagueHeading"),
   headerPlayerName: document.getElementById("headerPlayerName"),
+  heroTop: document.querySelector(".hero-top"),
   statusText: document.getElementById("statusText"),
 };
 
@@ -390,7 +390,7 @@ function getSeasonBounds(matches) {
   return getSeasonBoundsFromReferenceDate(matchDates[0]);
 }
 
-function estimatePlayableFutureMatches(entry, remainingMatchesLimit, seasonBounds) {
+function estimatePlayableFutureMatches(entry, remainingMatchesLimit, seasonBounds, totalMatchesTarget) {
   if (remainingMatchesLimit <= 0) {
     return 0;
   }
@@ -424,7 +424,10 @@ function estimatePlayableFutureMatches(entry, remainingMatchesLimit, seasonBound
   const priorPacePerDay = 0.055;
   const paceConfidence = clampNumber(entry.played / 8, 0, 1);
   const baselinePacePerDay = priorPacePerDay * (1 - paceConfidence) + observedPacePerDay * paceConfidence;
-  const remainingLoadRatio = remainingMatchesLimit / Math.max(1, MAX_MATCHES_PER_PLAYER_PER_SEASON);
+  const matchesTarget = Number.isFinite(totalMatchesTarget)
+    ? totalMatchesTarget
+    : (entry.played + remainingMatchesLimit);
+  const remainingLoadRatio = remainingMatchesLimit / Math.max(1, matchesTarget);
   const urgency = clampNumber((progress - 0.55) / 0.45, 0, 1);
   const mobilizationBoost = 1 + urgency * (0.24 + remainingLoadRatio * 0.55);
   const reportingLagBoost = 1.12;
@@ -600,9 +603,9 @@ function buildStandings(matches) {
   for (const entry of table.values()) {
     const playedOpponentsSet = opponentsMap.get(entry.player) || new Set();
     const playedOpponents = playedOpponentsSet.size;
-    const remainingOpponents = Math.max(0, participantsCount - 1 - playedOpponents);
-    const remainingBySeasonLimit = Math.max(0, MAX_MATCHES_PER_PLAYER_PER_SEASON - entry.played);
-    const remainingMatchesLimit = Math.min(remainingOpponents, remainingBySeasonLimit);
+    const totalMatchesTarget = Math.max(0, participantsCount - 1);
+    const remainingOpponents = Math.max(0, totalMatchesTarget - playedOpponents);
+    const remainingMatchesLimit = Math.max(0, totalMatchesTarget - entry.played);
 
     const remainingOpponentsList = [...table.keys()].filter(
       (name) => name !== entry.player && !playedOpponentsSet.has(name),
@@ -623,7 +626,12 @@ function buildStandings(matches) {
       0.97,
     );
 
-    const playableFutureMatches = estimatePlayableFutureMatches(entry, remainingMatchesLimit, seasonBounds);
+    const playableFutureMatches = estimatePlayableFutureMatches(
+      entry,
+      remainingMatchesLimit,
+      seasonBounds,
+      totalMatchesTarget,
+    );
     const expectedPointsPerFutureMatch = calculateExpectedPointsPerFutureMatch(
       winChance,
       playerStrength,
@@ -1413,6 +1421,28 @@ if (
 ) {
   elements.toggleControlsButton.dataset.toggleBound = "1";
   elements.toggleControlsButton.addEventListener("click", () => {
+    const nextCollapsed = !elements.controlsContent.hidden;
+    setControlsCollapsed(nextCollapsed);
+    saveSelections();
+  });
+}
+
+if (
+  elements.heroTop
+  && elements.controlsContent
+  && elements.heroTop.dataset.toggleBound !== "1"
+) {
+  elements.heroTop.dataset.toggleBound = "1";
+  elements.heroTop.addEventListener("click", (event) => {
+    if (
+      elements.toggleControlsButton
+      && event.target instanceof Element
+      && elements.toggleControlsButton.contains(event.target)
+    ) {
+      return;
+    }
+
+    event.stopPropagation();
     const nextCollapsed = !elements.controlsContent.hidden;
     setControlsCollapsed(nextCollapsed);
     saveSelections();
