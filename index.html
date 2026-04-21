@@ -73,10 +73,12 @@
     <div class="content-scroll">
       <section class="panel" aria-label="Tabela ligowa">
         <div class="panel-head">
-          <h2>Tabela</h2>
+          <div class="panel-title-group">
+            <h2>Tabela</h2>
+            <span id="newDataBadge" class="new-data-badge" hidden></span>
+          </div>
           <div class="status-group">
             <p id="statusText">Ładowanie...</p>
-            <span id="newDataBadge" class="new-data-badge" hidden></span>
           </div>
         </div>
         <div class="table-wrap">
@@ -86,7 +88,7 @@
                 <th>#</th>
                 <th data-sort-key="player">Gracz</th>
                 <th data-sort-key="points">Pkt</th>
-                <th data-sort-key="maxAvgPoints">Pred</th>
+                <th data-sort-key="maxAvgPoints">Prog.</th>
                 <th data-sort-key="wins">Z</th>
                 <th data-sort-key="losses">P</th>
               </tr>

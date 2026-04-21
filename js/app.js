@@ -2,9 +2,12 @@ const API_FRAMES_URL = "/api/r_mecze.php";
 const API_MATCHES_URL = "/api/mecze/mecze_lista.php";
 const SHARE_DATA = typeof window !== "undefined" ? window.__SHARE_DATA || null : null;
 const STORAGE_KEY = "liga-dashboard-selections";
+const MATCH_SNAPSHOTS_STORAGE_KEY = "liga-dashboard-match-snapshots";
+const NEW_RESULTS_STORAGE_KEY = "liga-dashboard-new-results";
 const AUTO_REFRESH_THROTTLE_MS = 2500;
 const SEASON_START_MONTHS = [1, 4, 7, 10];
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+const NEW_RESULTS_TTL_MS = 60 * 60 * 1000;
 
 const state = {
   season: null,
@@ -26,6 +29,9 @@ const state = {
   refreshInFlight: false,
   queuedRefresh: null,
   lastAutoRefreshAt: 0,
+  matchSnapshotsByScope: loadJsonStorage(MATCH_SNAPSHOTS_STORAGE_KEY),
+  newResultsByScope: loadJsonStorage(NEW_RESULTS_STORAGE_KEY),
+  newDataBadgeTimeoutId: null,
 };
 
 const elements = {
@@ -49,6 +55,7 @@ const elements = {
   headerPlayerName: document.getElementById("headerPlayerName"),
   heroTop: document.querySelector(".hero-top"),
   statusText: document.getElementById("statusText"),
+  newDataBadge: document.getElementById("newDataBadge"),
 };
 
 function setLoadingState(isLoading, text = "Pobieranie meczów...") {
@@ -68,6 +75,28 @@ function setLoadingState(isLoading, text = "Pobieranie meczów...") {
 
 function normalize(text) {
   return text.replace(/\s+/g, " ").trim();
+}
+
+function loadJsonStorage(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveJsonStorage(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // Ignore quota and privacy mode storage errors.
+  }
 }
 
 function titleCase(text) {
@@ -92,15 +121,7 @@ function clampNumber(value, min, max) {
 }
 
 function loadSelections() {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) {
-      return {};
-    }
-    return JSON.parse(raw);
-  } catch {
-    return {};
-  }
+  return loadJsonStorage(STORAGE_KEY);
 }
 
 function saveSelections() {
@@ -110,7 +131,7 @@ function saveSelections() {
     player: state.selectedPlayer || "",
     controlsCollapsed: Boolean(elements.controlsContent?.hidden),
   };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  saveJsonStorage(STORAGE_KEY, payload);
 }
 
 function setControlsCollapsed(collapsed) {
@@ -129,6 +150,123 @@ function updateHeaderHeading(leagueLabel, playerName) {
   }
   elements.leagueHeading.textContent = leagueLabel || "-";
   elements.headerPlayerName.textContent = playerName ? titleCase(playerName) : "-";
+}
+
+function getLeagueScopeKey(seasonId = state.season?.value, leagueId = state.selectedLeagueId) {
+  if (!seasonId || !leagueId) {
+    return "";
+  }
+
+  return `${seasonId}::${leagueId}`;
+}
+
+function persistMatchSnapshots() {
+  saveJsonStorage(MATCH_SNAPSHOTS_STORAGE_KEY, state.matchSnapshotsByScope);
+}
+
+function persistNewResults() {
+  saveJsonStorage(NEW_RESULTS_STORAGE_KEY, state.newResultsByScope);
+}
+
+function cleanupExpiredNewResults(now = Date.now()) {
+  let changed = false;
+
+  for (const [scopeKey, marker] of Object.entries(state.newResultsByScope)) {
+    if (!marker?.expiresAt || marker.expiresAt <= now) {
+      delete state.newResultsByScope[scopeKey];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    persistNewResults();
+  }
+}
+
+function getMatchSignatures(matches) {
+  return [...new Set(matches.map((match) => matchSignature(match)))].sort();
+}
+
+function markNewResultsVisible(scopeKey, now = Date.now()) {
+  if (!scopeKey) {
+    return;
+  }
+
+  state.newResultsByScope[scopeKey] = {
+    detectedAt: now,
+    expiresAt: now + NEW_RESULTS_TTL_MS,
+  };
+  persistNewResults();
+}
+
+function syncNewResultsMarker(scopeKey, matches) {
+  if (!scopeKey) {
+    return;
+  }
+
+  cleanupExpiredNewResults();
+  const nextSnapshot = getMatchSignatures(matches);
+  const previousSnapshot = Array.isArray(state.matchSnapshotsByScope[scopeKey])
+    ? state.matchSnapshotsByScope[scopeKey]
+    : null;
+
+  if (previousSnapshot) {
+    const previousSignatures = new Set(previousSnapshot);
+    const hasNewMatch = nextSnapshot.some((signature) => !previousSignatures.has(signature));
+    if (hasNewMatch) {
+      markNewResultsVisible(scopeKey);
+    }
+  }
+
+  state.matchSnapshotsByScope[scopeKey] = nextSnapshot;
+  persistMatchSnapshots();
+}
+
+function formatTimeLabel(timestamp) {
+  return new Intl.DateTimeFormat("pl-PL", {
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(new Date(timestamp));
+}
+
+function scheduleNewDataBadgeHide(expiresAt) {
+  if (state.newDataBadgeTimeoutId) {
+    window.clearTimeout(state.newDataBadgeTimeoutId);
+    state.newDataBadgeTimeoutId = null;
+  }
+
+  if (!expiresAt || expiresAt <= Date.now()) {
+    return;
+  }
+
+  state.newDataBadgeTimeoutId = window.setTimeout(() => {
+    state.newDataBadgeTimeoutId = null;
+    cleanupExpiredNewResults();
+    updateNewDataBadge();
+  }, expiresAt - Date.now());
+}
+
+function updateNewDataBadge() {
+  if (!elements.newDataBadge) {
+    return;
+  }
+
+  cleanupExpiredNewResults();
+  const scopeKey = getLeagueScopeKey();
+  const marker = scopeKey ? state.newResultsByScope[scopeKey] : null;
+
+  if (!marker?.expiresAt || marker.expiresAt <= Date.now()) {
+    scheduleNewDataBadgeHide(0);
+    elements.newDataBadge.hidden = true;
+    elements.newDataBadge.textContent = "";
+    elements.newDataBadge.removeAttribute("title");
+    return;
+  }
+
+  scheduleNewDataBadgeHide(marker.expiresAt);
+  elements.newDataBadge.hidden = false;
+  elements.newDataBadge.textContent = "Nowe wyniki!";
+  elements.newDataBadge.title = `Wykryto nowe wyniki. Znacznik wygaśnie około ${formatTimeLabel(marker.expiresAt)}.`;
 }
 
 async function fetchHtml(url, params) {
@@ -1028,6 +1166,7 @@ function fillSelect(select, options, selectedValue, placeholder = "") {
 
 function resetTablesForMissingSelection(message) {
   elements.statusText.textContent = message;
+  updateNewDataBadge();
   updateHeaderHeading("", "");
   elements.standingsBody.innerHTML = '<tr><td colspan="6">Wybierz sezon i ligę.</td></tr>';
   elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Wybierz zawodnika.</td></tr>';
@@ -1243,8 +1382,10 @@ async function refreshLeagueData(preferredPlayer = "", options = {}) {
 
   try {
     const selectedLeague = state.leagues.find((league) => league.value === state.selectedLeagueId);
+    const scopeKey = getLeagueScopeKey(state.season?.value, state.selectedLeagueId);
 
     state.matches = await fetchMatchesForLeague(state.season.value, state.selectedLeagueId);
+    syncNewResultsMarker(scopeKey, state.matches);
     const participants = getParticipants(state.matches);
     state.selectedPlayer = preferredPlayer && participants.includes(preferredPlayer)
       ? preferredPlayer
@@ -1289,6 +1430,7 @@ function updateDashboard(leagueLabel, options = {}) {
   const selectedPlayer = state.selectedPlayer;
   const matches = state.matches;
   updateHeaderHeading(leagueLabel, selectedPlayer);
+  updateNewDataBadge();
 
   const standings = sortStandings(
     buildStandings(matches),

@@ -252,10 +252,53 @@ select:focus-visible {
   margin: 0;
 }
 
+.panel-title-group {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.status-group {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 #statusText {
   margin: 0;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.new-data-badge {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  margin-left: auto;
+  color: #1a6a37;
+  font-size: 0.82rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-shadow: 0 0 14px rgba(58, 164, 92, 0.18);
+  animation: new-data-text-glow 2.4s ease-in-out infinite;
+}
+
+.new-data-badge::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.12rem;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(26, 106, 55, 0.08) 0%, rgba(63, 184, 104, 0.95) 50%, rgba(26, 106, 55, 0.08) 100%);
+  transform-origin: center;
+  animation: new-data-underline 2s ease-in-out infinite;
 }
 
 #statusText.is-loading {
@@ -277,6 +320,42 @@ select:focus-visible {
 @keyframes status-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes new-data-text-glow {
+  0% {
+    opacity: 0.72;
+    text-shadow: 0 0 0 rgba(58, 164, 92, 0);
+  }
+
+  50% {
+    opacity: 1;
+    text-shadow: 0 0 16px rgba(58, 164, 92, 0.22);
+    color: #1f7a41;
+  }
+
+  100% {
+    opacity: 0.72;
+    text-shadow: 0 0 0 rgba(58, 164, 92, 0);
+    color: #1a6a37;
+  }
+}
+
+@keyframes new-data-underline {
+  0% {
+    opacity: 0.3;
+    transform: scaleX(0.7);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scaleX(1);
+  }
+
+  100% {
+    opacity: 0.3;
+    transform: scaleX(0.7);
   }
 }
 
@@ -561,6 +640,20 @@ tbody tr:hover {
 }
 
 @media (max-width: 860px) {
+  .panel-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .panel-title-group {
+    width: 100%;
+    flex-wrap: nowrap;
+  }
+
+  .status-group {
+    justify-content: flex-start;
+  }
+
   .hero-top {
     align-items: center;
   }
