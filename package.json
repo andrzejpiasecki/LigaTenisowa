@@ -1,28 +1,31 @@
 {
   "name": "liga-tenisowa-dashboard",
-  "version": "0.0.1",
-  "description": "",
+  "version": "0.1.0",
   "private": true,
-  "keywords": [
-    ""
-  ],
-  "license": "",
-  "author": "",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "webpack serve --open --config webpack.config.dev.js",
-    "build": "webpack --config webpack.config.prod.js",
-    "build:share": "node scripts/build-share.js"
-  },
-  "devDependencies": {
-    "copy-webpack-plugin": "^11.0.0",
-    "html-webpack-plugin": "^5.6.0",
-    "webpack": "^5.91.0",
-    "webpack-cli": "^5.1.4",
-    "webpack-dev-server": "^5.0.4",
-    "webpack-merge": "^5.10.0"
+    "dev": "next dev",
+    "build": "prisma generate && next build",
+    "start": "next dev",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
-    "vercel": "^50.37.3"
-  }
+    "@clerk/nextjs": "^7.0.12",
+    "@prisma/adapter-pg": "^7.7.0",
+    "@prisma/client": "^7.7.0",
+    "next": "16.2.3",
+    "pg": "^8.20.0",
+    "react": "19.2.4",
+    "react-dom": "19.2.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.22",
+    "@types/react": "^19.2.2",
+    "@types/react-dom": "^19.2.2",
+    "dotenv": "^17.2.3",
+    "prisma": "^7.7.0",
+    "typescript": "^5.9.3"
+  },
+  "packageManager": "yarn@1.22.5"
 }

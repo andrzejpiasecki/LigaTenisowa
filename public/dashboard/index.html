@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dashboard Ligi Tenisowej</title>
+  <meta name="description" content="Dashboard ligi tenisowej z danymi meczy i tabelą punktową.">
+  <link rel="stylesheet" href="/dashboard/style.css">
+  <link rel="icon" href="/favicon.ico?v=2" sizes="any">
+  <link rel="icon" href="/icon.svg?v=2" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/icon.png?v=2">
+  <link rel="manifest" href="/site.webmanifest?v=2">
+</head>
+<body>
+  <main class="page">
+    <header class="hero">
+      <div class="hero-top">
+        <h1>
+          <span id="headerPlayerName">-</span>
+          <span class="hero-separator" aria-hidden="true">|</span>
+          <span id="leagueHeading">-</span>
+        </h1>
+        <button
+          id="toggleControlsButton"
+          type="button"
+          class="menu-button"
+          aria-expanded="false"
+          aria-controls="controlsContent"
+          aria-label="Otwórz opcje">
+          <span class="menu-icon" aria-hidden="true">
+            <span></span>
+            <span></span>
+            <span></span>
+          </span>
+        </button>
+      </div>
+      <div id="controlsContent" class="menu-panel" aria-label="Filtry">
+        <div class="controls-grid">
+          <label>
+            Sezon
+            <select id="seasonSelect"></select>
+          </label>
+          <label>
+            Liga
+            <select id="leagueSelect"></select>
+          </label>
+          <label>
+            Gracz
+            <select id="playerSelect"></select>
+          </label>
+          <a href="/umawianie-meczow" class="admin-link-button">Umawianie meczów</a>
+        </div>
+        <div class="stats-grid menu-stats">
+        <article class="stat-card">
+          <h2>Mecze</h2>
+          <p class="split-stat"><span id="playedCount">0</span><span class="split-separator">/</span><span id="remainingCount">0</span></p>
+        </article>
+        <article class="stat-card">
+          <h2>Punkty</h2>
+          <p id="playerPoints">0</p>
+        </article>
+        <article class="stat-card">
+          <h2>Pozycja</h2>
+          <p id="playerPosition">-</p>
+        </article>
+        <article class="stat-card">
+          <h2>Sety</h2>
+          <p id="playerSets">0:0</p>
+        </article>
+        </div>
+      </div>
+    </header>
+
+    <div class="content-scroll">
+      <section class="panel" aria-label="Tabela ligowa">
+        <div class="panel-head">
+          <div class="panel-title-group">
+            <h2>Tabela</h2>
+            <span id="newDataBadge" class="new-data-badge" hidden></span>
+          </div>
+          <div class="status-group">
+            <p id="statusText">Ładowanie...</p>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table id="standingsTable">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th data-sort-key="player">Gracz</th>
+                <th data-sort-key="points">Pkt</th>
+                <th data-sort-key="maxAvgPoints">Prog.</th>
+                <th data-sort-key="wins">Z</th>
+                <th data-sort-key="losses">P</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-label="Mecze gracza">
+        <h2>Mecze rozegrane</h2>
+        <div class="table-wrap">
+          <table id="playerMatchesTable">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Przeciwnik</th>
+                <th>Wynik</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="panel" aria-label="Mecze pozostałe">
+        <h2>Mecze pozostałe do rozegrania</h2>
+        <div id="remainingMatchesList"></div>
+        <div id="predictionInfoBox" class="prediction-info-box"></div>
+      </section>
+
+      <section class="panel" aria-label="Wszystkie mecze">
+        <h2>Wszystkie mecze</h2>
+        <div class="table-wrap">
+          <table id="allMatchesTable">
+            <thead>
+              <tr>
+                <th>Data</th>
+                <th>Zwycięzca</th>
+                <th>Przegrany</th>
+                <th>Wynik</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script src="/dashboard/app.js"></script>
+</body>
+</html>

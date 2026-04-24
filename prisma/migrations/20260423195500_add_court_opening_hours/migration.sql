@@ -1,0 +1,3 @@
+ALTER TABLE "liga_tenisowa"."Court"
+ADD COLUMN "openingTime" TEXT NOT NULL DEFAULT '07:00',
+ADD COLUMN "closingTime" TEXT NOT NULL DEFAULT '22:00';

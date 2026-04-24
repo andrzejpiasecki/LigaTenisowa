@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum ScheduledMatchStatus {
+  propozycja
+  oczekuje
+  potwierdzony
+  anulowany
+  rozegrany
+}
+
+enum PlayerStatus {
+  aktywny
+  nieaktywny
+}
+
+enum AvailabilityKind {
+  dostepny
+  niedostepny
+}
+
+enum AvailabilitySource {
+  sms
+  reczne
+  ai
+  system
+}
+
+enum InboundSmsAvailabilityStatus {
+  dostepny
+  niedostepny
+  propozycja
+  niejasne
+}
+
+enum MatchProposalStatus {
+  draft
+  accepted
+  rejected
+}
+
+model Player {
+  id             String             @id @default(cuid())
+  fullName       String
+  phone          String?            @unique
+  league         String
+  season         String
+  resultsPlayerId String?
+  resultsPlayerName String?
+  skillLevel     Int                @default(5)
+  preferences    String
+  status         PlayerStatus       @default(aktywny)
+  inactiveUntil  DateTime?
+  notes          String
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  availabilities PlayerAvailability[]
+  homeMatches    ScheduledMatch[]   @relation("PlayerOne")
+  awayMatches    ScheduledMatch[]   @relation("PlayerTwo")
+  historyAsOne   MatchHistory[]     @relation("HistoryPlayerOne")
+  historyAsTwo   MatchHistory[]     @relation("HistoryPlayerTwo")
+  proposalsAsOne MatchProposal[]    @relation("ProposalPlayerOne")
+  proposalsAsTwo MatchProposal[]    @relation("ProposalPlayerTwo")
+  inboundSms     InboundSms[]
+
+  @@index([league, season, status])
+}
+
+model Court {
+  id          String           @id @default(cuid())
+  name        String
+  location    String
+  openingTime String           @default("07:00")
+  closingTime String           @default("22:00")
+  isActive    Boolean          @default(true)
+  notes       String
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  matches     ScheduledMatch[]
+  history     MatchHistory[]
+  proposals   MatchProposal[]
+}
+
+model PlayerAvailability {
+  id           String             @id @default(cuid())
+  playerId      String
+  player        Player             @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  kind          AvailabilityKind
+  source        AvailabilitySource @default(reczne)
+  startsAt      DateTime
+  endsAt        DateTime
+  summary       String
+  inboundSmsId  String?
+  inboundSms    InboundSms?        @relation(fields: [inboundSmsId], references: [id], onDelete: SetNull)
+  createdAt     DateTime           @default(now())
+
+  @@index([playerId, startsAt, endsAt])
+}
+
+model MatchHistory {
+  id         String   @id @default(cuid())
+  season     String
+  league     String
+  playerOneId String
+  playerOne   Player   @relation("HistoryPlayerOne", fields: [playerOneId], references: [id], onDelete: Cascade)
+  playerTwoId String
+  playerTwo   Player   @relation("HistoryPlayerTwo", fields: [playerTwoId], references: [id], onDelete: Cascade)
+  courtId    String?
+  court      Court?    @relation(fields: [courtId], references: [id], onDelete: SetNull)
+  playedAt   DateTime
+  notes      String
+  createdAt  DateTime @default(now())
+
+  @@index([season, league, playedAt])
+}
+
+model ScheduledMatch {
+  id            String               @id @default(cuid())
+  season        String
+  league        String
+  playerOneId   String?
+  playerOneRef  Player?              @relation("PlayerOne", fields: [playerOneId], references: [id], onDelete: SetNull)
+  playerOne     String
+  playerOnePhone String?
+  playerTwoId   String?
+  playerTwoRef  Player?              @relation("PlayerTwo", fields: [playerTwoId], references: [id], onDelete: SetNull)
+  playerTwo     String
+  playerTwoPhone String?
+  courtId       String?
+  court         Court?               @relation(fields: [courtId], references: [id], onDelete: SetNull)
+  scheduledAt   DateTime             @db.Timestamptz(3)
+  location      String
+  status        ScheduledMatchStatus @default(propozycja)
+  adminNotes    String
+  createdBy     String
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  inboundSms    InboundSms[]
+
+  @@index([scheduledAt])
+  @@index([league, season])
+  @@index([createdBy])
+}
+
+model InboundSms {
+  id                  String                        @id @default(cuid())
+  provider            String
+  externalId          String?
+  fromNumber          String
+  toNumber            String?
+  body                String
+  matchedPlayer       String?
+  matchedPlayerId     String?
+  matchedPlayerRef    Player?                       @relation(fields: [matchedPlayerId], references: [id], onDelete: SetNull)
+  parsedSummary       String
+  parsedAvailability  InboundSmsAvailabilityStatus @default(niejasne)
+  parsedStartsAt      DateTime?
+  parsedEndsAt        DateTime?
+  parsedReason        String
+  parsedInactiveUntil DateTime?
+  receivedAt          DateTime
+  createdAt           DateTime                      @default(now())
+  rawPayload          Json
+  scheduledMatchId    String?
+  scheduledMatch      ScheduledMatch?               @relation(fields: [scheduledMatchId], references: [id], onDelete: SetNull)
+  availabilityBlocks  PlayerAvailability[]
+  proposals           MatchProposal[]
+
+  @@index([fromNumber, receivedAt])
+  @@index([scheduledMatchId, receivedAt])
+  @@unique([provider, externalId])
+}
+
+model MatchProposal {
+  id               String              @id @default(cuid())
+  season           String
+  league           String
+  playerOneId      String
+  playerOne        Player              @relation("ProposalPlayerOne", fields: [playerOneId], references: [id], onDelete: Cascade)
+  playerTwoId      String
+  playerTwo        Player              @relation("ProposalPlayerTwo", fields: [playerTwoId], references: [id], onDelete: Cascade)
+  courtId          String?
+  court            Court?              @relation(fields: [courtId], references: [id], onDelete: SetNull)
+  proposedStartsAt DateTime
+  proposedEndsAt   DateTime
+  score            Float
+  rationale        String
+  status           MatchProposalStatus @default(draft)
+  feedback         String
+  sourceSmsId      String?
+  sourceSms        InboundSms?         @relation(fields: [sourceSmsId], references: [id], onDelete: SetNull)
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  @@index([season, league, status])
+  @@index([proposedStartsAt, proposedEndsAt])
+}
