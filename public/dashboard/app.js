@@ -8,6 +8,7 @@ const AUTO_REFRESH_THROTTLE_MS = 2500;
 const SEASON_START_MONTHS = [1, 4, 7, 10];
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NEW_RESULTS_TTL_MS = 60 * 60 * 1000;
+const SHOW_PREDICTIONS = false;
 
 const state = {
   season: null,
@@ -15,13 +16,18 @@ const state = {
   leagues: [],
   selectedLeagueId: "",
   selectedPlayer: "",
+  selectedOpponent: "",
   matches: [],
   formDefaults: null,
   shareMode: Boolean(SHARE_DATA),
   leagueHtmlById: SHARE_DATA?.leagueHtmlById || {},
   playerIdByName: {},
   remainingHistoryByOpponent: {},
+  pairHistoryByKey: {},
+  playerSeasonMatchesByKey: {},
   historyRequestToken: 0,
+  leagueHistoryToken: 0,
+  playerMatchesRequestToken: 0,
   standingsSort: {
     key: "points",
     direction: "desc",
@@ -38,6 +44,7 @@ const elements = {
   seasonSelect: document.getElementById("seasonSelect"),
   leagueSelect: document.getElementById("leagueSelect"),
   playerSelect: document.getElementById("playerSelect"),
+  opponentSelect: document.getElementById("opponentSelect"),
   refreshButton: document.getElementById("refreshButton"),
   toggleControlsButton: document.getElementById("toggleControlsButton"),
   controlsContent: document.getElementById("controlsContent"),
@@ -129,6 +136,7 @@ function saveSelections() {
     seasonId: state.season?.value || "",
     leagueId: state.selectedLeagueId || "",
     player: state.selectedPlayer || "",
+    opponent: state.selectedOpponent || "__current_season__",
     controlsCollapsed: Boolean(elements.controlsContent?.hidden),
   };
   saveJsonStorage(STORAGE_KEY, payload);
@@ -406,6 +414,22 @@ function buildMatchesPayload(seasonId, leagueId) {
   payload.append("id_liga", leagueId ?? defaults.id_liga ?? "");
   payload.append("id_gracz", defaults.id_gracz || "");
   payload.append("id_gracz2", defaults.id_gracz2 || "");
+  payload.append("sort", defaults.sort || "data DESC");
+  payload.append("limit", "500");
+  payload.append("show", defaults.show || "go");
+
+  return payload;
+}
+
+function buildPlayerMatchesPayload(playerId) {
+  const defaults = state.formDefaults || {};
+  const payload = new URLSearchParams();
+
+  payload.append("show_strona", defaults.show_strona || "1");
+  payload.append("id_sezon", "");
+  payload.append("id_liga", "");
+  payload.append("id_gracz", playerId || "");
+  payload.append("id_gracz2", "");
   payload.append("sort", defaults.sort || "data DESC");
   payload.append("limit", "500");
   payload.append("show", defaults.show || "go");
@@ -873,6 +897,11 @@ function buildPositionChangeByPlayer(matches) {
 }
 
 function updateSortHeaders() {
+  if (!SHOW_PREDICTIONS && state.standingsSort.key === "maxAvgPoints") {
+    state.standingsSort.key = "points";
+    state.standingsSort.direction = "desc";
+  }
+
   for (const header of elements.standingsHeaders) {
     const key = header.getAttribute("data-sort-key");
     header.classList.remove("sorted-asc", "sorted-desc");
@@ -888,7 +917,13 @@ function getParticipants(matches) {
   );
 }
 
-function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, remainingOpponents) {
+function buildRemainingPredictionByOpponent(
+  matches,
+  standings,
+  selectedPlayer,
+  remainingOpponents,
+  historyByOpponent = state.remainingHistoryByOpponent,
+) {
   const result = {};
   if (!selectedPlayer || !remainingOpponents.length) {
     return result;
@@ -919,6 +954,27 @@ function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, 
   const playerWinRate = (playerEntry.wins + 1) / (playerEntry.played + 2);
   const playerStrength = playerPointsPerMatch / 5;
 
+  const knownHistoricalMatches = Object.values(state.remainingHistoryByOpponent || {})
+    .flatMap((bucket) => bucket?.matches || [])
+    .filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer);
+  const knownCurrentMatches = matches.filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer);
+  const knownAllBySignature = new Map();
+  for (const match of [...knownCurrentMatches, ...knownHistoricalMatches]) {
+    knownAllBySignature.set(matchSignature(match), match);
+  }
+  const knownAllMatches = [...knownAllBySignature.values()];
+
+  const globalWonSets = knownAllMatches.reduce((sum, match) => {
+    const ownSets = match.winner === selectedPlayer ? match.result.winnerSets : match.result.loserSets;
+    return sum + ownSets;
+  }, 0);
+  const globalPlayedSets = knownAllMatches.reduce((sum, match) => sum + match.result.winnerSets + match.result.loserSets, 0);
+  const globalSetTakeRate = globalPlayedSets > 0 ? globalWonSets / globalPlayedSets : 0.33;
+
+  const globalWins = knownAllMatches.filter((match) => match.winner === selectedPlayer).length;
+  const globalLosses = knownAllMatches.filter((match) => match.loser === selectedPlayer).length;
+  const globalWinRate = (globalWins + 1) / (globalWins + globalLosses + 2);
+
   for (const opponent of remainingOpponents) {
     const opponentEntry = pointsByPlayer.get(opponent);
     const opponentPointsPerMatch = opponentEntry && opponentEntry.played > 0
@@ -943,23 +999,93 @@ function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, 
         (match.winner === selectedPlayer && match.loser === opponent)
         || (match.winner === opponent && match.loser === selectedPlayer),
     );
-    const pairHistoricalMatches = state.remainingHistoryByOpponent[opponent]?.matches || [];
+    const pairHistoricalMatches = historyByOpponent[opponent]?.matches || [];
     const allPairMatchesBySignature = new Map();
     for (const match of [...pairCurrentSeasonMatches, ...pairHistoricalMatches]) {
       allPairMatchesBySignature.set(matchSignature(match), match);
     }
+    const pairMatches = [...allPairMatchesBySignature.values()];
+    const pairWins = pairMatches.filter((match) => match.winner === selectedPlayer).length;
+    const pairLosses = pairMatches.filter((match) => match.loser === selectedPlayer).length;
+    const pairWonSets = pairMatches.reduce((sum, match) => {
+      const ownSets = match.winner === selectedPlayer ? match.result.winnerSets : match.result.loserSets;
+      return sum + ownSets;
+    }, 0);
+    const pairPlayedSets = pairMatches.reduce((sum, match) => sum + match.result.winnerSets + match.result.loserSets, 0);
+    const pairSetTakeRate = pairPlayedSets > 0 ? pairWonSets / pairPlayedSets : 0;
+
+    const severeH2HLoss = (() => {
+      if (!pairMatches.length) {
+        return false;
+      }
+
+      const recentMatches = [...pairMatches]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 3);
+
+      let heavyLosses = 0;
+      for (const match of recentMatches) {
+        if (match.loser !== selectedPlayer) {
+          continue;
+        }
+
+        const ownGames = (match.sets || []).reduce((sum, set) => sum + set.second, 0);
+        const oppGames = (match.sets || []).reduce((sum, set) => sum + set.first, 0);
+        const ownSets = match.result.loserSets;
+        const oppSets = match.result.winnerSets;
+        const gameDiff = oppGames - ownGames;
+
+        if (oppSets - ownSets >= 2 && gameDiff >= 8) {
+          heavyLosses += 1;
+        }
+      }
+
+      return heavyLosses >= 1;
+    })();
+
+    if (pairLosses > 0 && pairWins === 0 && severeH2HLoss) {
+      result[opponent] = 1;
+      continue;
+    }
+
+    if (pairLosses >= 2 && pairWins === 0 && pairSetTakeRate < 0.34) {
+      result[opponent] = 1;
+      continue;
+    }
+
+    if (pairLosses >= 3 && pairWins <= 1 && pairSetTakeRate < 0.4) {
+      result[opponent] = 1;
+      continue;
+    }
+
+    if (pairMatches.length === 0 && opponentsStrength > 0.62 && globalSetTakeRate < 0.38 && globalWinRate < 0.35) {
+      result[opponent] = 1;
+      continue;
+    }
+
+    if (pairMatches.length === 0 && opponentsStrength > 0.72 && globalSetTakeRate < 0.45) {
+      result[opponent] = 1;
+      continue;
+    }
+
     const h2h = calculateHeadToHeadAdjustment(
       selectedPlayer,
       opponent,
-      [...allPairMatchesBySignature.values()],
+      pairMatches,
     );
     let adjustedExpected = expectedPoints + h2h.pointsAdjustment;
     if (h2h.confidence > 0.4 && h2h.dominance <= -0.65) {
-      adjustedExpected = Math.min(adjustedExpected, 2.2);
+      adjustedExpected = Math.min(adjustedExpected, 1.9);
     } else if (h2h.confidence > 0.3 && h2h.dominance <= -0.4) {
-      adjustedExpected = Math.min(adjustedExpected, 2.6);
+      adjustedExpected = Math.min(adjustedExpected, 2.2);
     } else if (h2h.confidence > 0.4 && h2h.dominance >= 0.65) {
       adjustedExpected = Math.max(adjustedExpected, 3.5);
+    }
+    if (globalSetTakeRate < 0.4 && opponentsStrength > 0.6) {
+      adjustedExpected = Math.min(adjustedExpected, 2.0);
+    }
+    if (globalSetTakeRate < 0.34 && opponentsStrength > 0.55) {
+      adjustedExpected = Math.min(adjustedExpected, 1.7);
     }
     result[opponent] = Math.round(clampNumber(adjustedExpected, 1, 5));
   }
@@ -971,8 +1097,53 @@ function matchSignature(match) {
   return `${match.date}|${match.winner}|${match.loser}|${match.result.winnerSets}:${match.result.loserSets}`;
 }
 
+function pairKey(playerA, playerB) {
+  return [normalize(playerA).toUpperCase(), normalize(playerB).toUpperCase()].sort().join("||");
+}
+
+function getRemainingOpponentsForPlayer(matches, participants, player) {
+  const playedOpponents = new Set(
+    matches
+      .filter((match) => match.winner === player || match.loser === player)
+      .map((match) => (match.winner === player ? match.loser : match.winner)),
+  );
+
+  return participants
+    .filter((name) => name !== player)
+    .filter((name) => !playedOpponents.has(name));
+}
+
+function buildHistoryByOpponentFromPairCache(player, opponents) {
+  const result = {};
+  for (const opponent of opponents) {
+    result[opponent] = state.pairHistoryByKey[pairKey(player, opponent)] || { loading: false, error: false, matches: [] };
+  }
+  return result;
+}
+
+function applyProjectedForecastsToStandings(matches, standings) {
+  const participants = getParticipants(matches);
+
+  for (const entry of standings) {
+    const remainingOpponents = getRemainingOpponentsForPlayer(matches, participants, entry.player);
+    const historyByOpponent = buildHistoryByOpponentFromPairCache(entry.player, remainingOpponents);
+    const predictionByOpponent = buildRemainingPredictionByOpponent(
+      matches,
+      standings,
+      entry.player,
+      remainingOpponents,
+      historyByOpponent,
+    );
+    const projected = calculateProjectedTotalPoints(entry, remainingOpponents, predictionByOpponent);
+    entry.maxAvgPoints = projected.predictedPoints;
+  }
+
+  return standings;
+}
+
 function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {}) {
   updateSortHeaders();
+  document.body.classList.toggle("hide-predictions", !SHOW_PREDICTIONS);
   const getPlaceWord = (value) => {
     const lastTwo = value % 100;
     if (lastTwo >= 12 && lastTwo <= 14) {
@@ -1002,7 +1173,7 @@ function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {})
           <td><span class="position-cell"><span>${index + 1}</span>${positionTrend}</span></td>
           <td>${escapeHtml(titleCase(entry.player))}</td>
           <td><strong>${entry.points}</strong></td>
-          <td><strong>${entry.maxAvgPoints}</strong></td>
+          ${SHOW_PREDICTIONS ? `<td><strong>${entry.maxAvgPoints}</strong></td>` : ""}
           <td>${entry.wins}</td>
           <td>${entry.losses}</td>
         </tr>
@@ -1010,7 +1181,7 @@ function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {})
     })
     .join("");
 
-  elements.standingsBody.innerHTML = rows || '<tr><td colspan="6">Brak meczów.</td></tr>';
+  elements.standingsBody.innerHTML = rows || `<tr><td colspan="${SHOW_PREDICTIONS ? 6 : 5}">Brak meczów.</td></tr>`;
 }
 
 function renderMatchRow(match, selectedPlayer, showOpponent = true) {
@@ -1038,6 +1209,43 @@ function renderPlayerMatches(matches, selectedPlayer) {
   elements.playerMatchesBody.innerHTML = rows || '<tr><td colspan="3">Brak rozegranych meczów.</td></tr>';
 }
 
+function getMatchOpponent(match, selectedPlayer) {
+  if (match.winner === selectedPlayer) {
+    return match.loser;
+  }
+  if (match.loser === selectedPlayer) {
+    return match.winner;
+  }
+  return "";
+}
+
+function updateOpponentSelect(matches, selectedPlayer) {
+  if (!elements.opponentSelect) {
+    return;
+  }
+
+  const opponents = [...new Set(matches.map((match) => getMatchOpponent(match, selectedPlayer)).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "pl"));
+
+  if (state.selectedOpponent && state.selectedOpponent !== "__current_season__" && !opponents.includes(state.selectedOpponent)) {
+    state.selectedOpponent = "__current_season__";
+  }
+
+  const options = [
+    { value: "__current_season__", label: "Aktualny sezon" },
+    ...opponents.map((opponent) => ({ value: opponent, label: titleCase(opponent) })),
+  ];
+
+  fillSelect(elements.opponentSelect, options, state.selectedOpponent || "__current_season__");
+}
+
+function filterMatchesByOpponent(matches, selectedPlayer) {
+  if (!state.selectedOpponent || state.selectedOpponent === "__current_season__") {
+    return matches;
+  }
+  return matches.filter((match) => getMatchOpponent(match, selectedPlayer) === state.selectedOpponent);
+}
+
 function renderAllMatches(matches) {
   const rows = [...matches]
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -1061,17 +1269,20 @@ function renderAllMatches(matches) {
 }
 
 function renderRemaining(remainingOpponents, selectedPlayer, remainingPredictionByOpponent = {}, playerSummary = null) {
-  const predictedPoints = playerSummary?.maxAvgPoints ?? 0;
-  const currentPoints = playerSummary?.points ?? 0;
-  const maxPoints = playerSummary?.maxPoints ?? 0;
-  const remainingMatches = playerSummary?.remainingMatches ?? 0;
-  const assumedPlayedMatches = playerSummary?.assumedPlayedMatches ?? 0;
-  const summary = `
+  const prediction = calculateProjectedTotalPoints(playerSummary, remainingOpponents, remainingPredictionByOpponent);
+  const currentPoints = prediction.currentPoints;
+  const maxPoints = prediction.maxPoints;
+  const remainingMatches = prediction.remainingMatches;
+  const assumedPlayedMatches = prediction.assumedPlayedMatches;
+  const playRate = prediction.playRate;
+  const predictedPoints = prediction.predictedPoints;
+  const predictedPointsIfAllPlayed = prediction.predictedPointsIfAllPlayed;
+  const summary = SHOW_PREDICTIONS ? `
     <div class="remaining-summary">
       <p class="remaining-summary-title">Predykcja końcowej liczby punktów: ${predictedPoints} pkt</p>
-      <p class="remaining-summary-details">Obecnie: ${currentPoints} pkt | Matematyczne maksimum: ${maxPoints} pkt | Pozostałe mecze: ${remainingMatches} ${formatMatchesWord(remainingMatches)} | Założone do rozegrania: ${assumedPlayedMatches} ${formatMatchesWord(assumedPlayedMatches)}</p>
+      <p class="remaining-summary-details">Obecnie: ${currentPoints} pkt | Suma Prog. przy rozegraniu wszystkiego: ${predictedPointsIfAllPlayed} pkt | Matematyczne maksimum: ${maxPoints} pkt | Pozostałe mecze: ${remainingMatches} ${formatMatchesWord(remainingMatches)} | Założone do rozegrania: ${assumedPlayedMatches} ${formatMatchesWord(assumedPlayedMatches)} | Skalowanie aktywności: ${Math.round(playRate * 100)}%</p>
     </div>
-  `;
+  ` : "";
 
   if (!remainingOpponents.length) {
     elements.remainingMatchesList.innerHTML = `<p class="hint">Brak zaległych meczów w tej lidze.</p>${summary}`;
@@ -1115,9 +1326,9 @@ function renderRemaining(remainingOpponents, selectedPlayer, remainingPrediction
     return `
       <tr>
         <td>${escapeHtml(titleCase(opponent))}</td>
-        <td><strong>${prediction}</strong></td>
-        <td>${h2hCell}</td>
-      </tr>
+          ${SHOW_PREDICTIONS ? `<td><strong>${prediction}</strong></td>` : ""}
+          <td>${h2hCell}</td>
+        </tr>
     `;
   }).join("");
 
@@ -1127,7 +1338,7 @@ function renderRemaining(remainingOpponents, selectedPlayer, remainingPrediction
         <thead>
           <tr>
             <th>Przeciwnik</th>
-            <th>Prog.</th>
+            ${SHOW_PREDICTIONS ? "<th>Prog.</th>" : ""}
             <th>Bilans H2H</th>
           </tr>
         </thead>
@@ -1137,6 +1348,31 @@ function renderRemaining(remainingOpponents, selectedPlayer, remainingPrediction
   `;
 
   elements.remainingMatchesList.innerHTML = `${table}${summary}`;
+}
+
+function calculateProjectedTotalPoints(playerSummary, remainingOpponents, remainingPredictionByOpponent) {
+  const currentPoints = playerSummary?.points ?? 0;
+  const maxPoints = playerSummary?.maxPoints ?? 0;
+  const remainingMatches = playerSummary?.remainingMatches ?? 0;
+  const assumedPlayedMatches = playerSummary?.assumedPlayedMatches ?? 0;
+  const predictionValues = remainingOpponents.map((opponent) => Number(remainingPredictionByOpponent[opponent] || 0));
+  const rawPredictedGain = predictionValues.reduce((sum, value) => sum + value, 0);
+  const playRate = remainingMatches > 0
+    ? clampNumber(assumedPlayedMatches / remainingMatches, 0, 1)
+    : 0;
+  const scaledPredictedGain = Math.round(rawPredictedGain * playRate);
+  const predictedPoints = currentPoints + scaledPredictedGain;
+  const predictedPointsIfAllPlayed = currentPoints + rawPredictedGain;
+
+  return {
+    currentPoints,
+    maxPoints,
+    remainingMatches,
+    assumedPlayedMatches,
+    playRate,
+    predictedPoints,
+    predictedPointsIfAllPlayed,
+  };
 }
 
 function formatMatchesWord(count) {
@@ -1230,6 +1466,78 @@ async function fetchMatchesForLeague(seasonId, leagueId) {
   return parseMatches(htmlToDocument(html));
 }
 
+async function fetchPlayerMatchesHistory(playerName) {
+  if (!playerName) {
+    return [];
+  }
+
+  if (state.shareMode) {
+    return state.matches.filter((match) => match.winner === playerName || match.loser === playerName);
+  }
+
+  const playerId = getPlayerIdByName(playerName);
+  if (!playerId) {
+    return [];
+  }
+
+  const cacheKey = `all|${playerId}`;
+  if (state.playerSeasonMatchesByKey[cacheKey]) {
+    return state.playerSeasonMatchesByKey[cacheKey];
+  }
+
+  const payload = buildPlayerMatchesPayload(playerId);
+  const html = await postForm(API_MATCHES_URL, payload);
+  const matches = parseMatches(htmlToDocument(html));
+  state.playerSeasonMatchesByKey[cacheKey] = matches;
+  return matches;
+}
+
+async function renderSelectedPlayerMatches(selectedPlayer) {
+  const token = ++state.playerMatchesRequestToken;
+
+  if (!selectedPlayer) {
+    updateOpponentSelect([], "");
+    renderPlayerMatches([], "");
+    elements.playedCount.textContent = "0";
+    return;
+  }
+
+  if (!state.selectedOpponent || state.selectedOpponent === "__current_season__") {
+    const seasonMatches = state.matches
+      .filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer)
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    const historicalMatches = await fetchPlayerMatchesHistory(selectedPlayer);
+    if (token !== state.playerMatchesRequestToken || state.selectedPlayer !== selectedPlayer) {
+      return;
+    }
+    updateOpponentSelect(historicalMatches.sort((a, b) => b.date.localeCompare(a.date)), selectedPlayer);
+    renderPlayerMatches(seasonMatches, selectedPlayer);
+    elements.playedCount.textContent = String(seasonMatches.length);
+    return;
+  }
+
+  elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Ładowanie historycznych meczów gracza...</td></tr>';
+
+  try {
+    const historicalMatches = await fetchPlayerMatchesHistory(selectedPlayer);
+    if (token !== state.playerMatchesRequestToken || state.selectedPlayer !== selectedPlayer) {
+      return;
+    }
+
+    const sortedMatches = historicalMatches.sort((a, b) => b.date.localeCompare(a.date));
+    updateOpponentSelect(sortedMatches, selectedPlayer);
+    const filteredMatches = filterMatchesByOpponent(sortedMatches, selectedPlayer);
+    renderPlayerMatches(filteredMatches, selectedPlayer);
+    elements.playedCount.textContent = String(filteredMatches.length);
+  } catch {
+    if (token !== state.playerMatchesRequestToken) {
+      return;
+    }
+    elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Nie udało się pobrać historycznych meczów gracza.</td></tr>';
+  }
+}
+
 async function fetchHeadToHeadHistory(playerAId, playerBId) {
   if (!playerAId || !playerBId) {
     return [];
@@ -1247,6 +1555,83 @@ async function fetchHeadToHeadHistory(playerAId, playerBId) {
 
   const html = await postForm(API_MATCHES_URL, payload);
   return parseMatches(htmlToDocument(html));
+}
+
+async function loadLeaguePairHistories(matches, leagueLabel) {
+  if (state.shareMode) {
+    return;
+  }
+
+  const token = ++state.leagueHistoryToken;
+  const participants = getParticipants(matches);
+  const currentMatchSignaturesByPair = new Map();
+
+  for (const match of matches) {
+    const key = pairKey(match.winner, match.loser);
+    if (!currentMatchSignaturesByPair.has(key)) {
+      currentMatchSignaturesByPair.set(key, new Set());
+    }
+    currentMatchSignaturesByPair.get(key).add(matchSignature(match));
+  }
+
+  const jobs = [];
+  for (const player of participants) {
+    for (const opponent of getRemainingOpponentsForPlayer(matches, participants, player)) {
+      const key = pairKey(player, opponent);
+      if (state.pairHistoryByKey[key]) {
+        continue;
+      }
+
+      state.pairHistoryByKey[key] = { loading: true, error: false, matches: [] };
+      jobs.push({ player, opponent, key });
+    }
+  }
+
+  const uniqueJobs = [...new Map(jobs.map((job) => [job.key, job])).values()];
+  const concurrency = 4;
+  let completed = 0;
+
+  async function runJob(job) {
+    const playerId = getPlayerIdByName(job.player);
+    const opponentId = getPlayerIdByName(job.opponent);
+    try {
+      const allMatches = await fetchHeadToHeadHistory(playerId, opponentId);
+      const currentSigs = currentMatchSignaturesByPair.get(job.key) || new Set();
+      const historicalOnly = allMatches.filter((match) => !currentSigs.has(matchSignature(match)));
+
+      if (token !== state.leagueHistoryToken) {
+        return;
+      }
+
+      state.pairHistoryByKey[job.key] = {
+        loading: false,
+        error: false,
+        matches: historicalOnly,
+      };
+    } catch {
+      if (token !== state.leagueHistoryToken) {
+        return;
+      }
+
+      state.pairHistoryByKey[job.key] = {
+        loading: false,
+        error: true,
+        matches: [],
+      };
+    } finally {
+      completed += 1;
+      if (uniqueJobs.length > 0 && token === state.leagueHistoryToken) {
+        elements.statusText.textContent = `${state.season.label} | ${leagueLabel} | historia H2H ${completed}/${uniqueJobs.length}`;
+      }
+    }
+  }
+
+  for (let index = 0; index < uniqueJobs.length; index += concurrency) {
+    if (token !== state.leagueHistoryToken) {
+      return;
+    }
+    await Promise.all(uniqueJobs.slice(index, index + concurrency).map(runJob));
+  }
 }
 
 async function loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel) {
@@ -1314,15 +1699,6 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents, league
   );
 
   if (token === state.historyRequestToken) {
-    const latestStandingsSnapshot = sortStandings(buildStandings(state.matches));
-    const latestRemainingPredictionByOpponent = buildRemainingPredictionByOpponent(
-      state.matches,
-      latestStandingsSnapshot,
-      selectedPlayer,
-      remainingOpponents,
-    );
-    const latestPlayerSummary = latestStandingsSnapshot.find((entry) => entry.player === selectedPlayer);
-    renderRemaining(remainingOpponents, selectedPlayer, latestRemainingPredictionByOpponent, latestPlayerSummary);
     updateDashboard(leagueLabel, { skipHistoryLoad: true });
   }
 }
@@ -1338,6 +1714,7 @@ async function initialize() {
     : Boolean(stored.controlsCollapsed);
   setControlsCollapsed(initialControlsCollapsed);
   state.seasons = context.allSeasons;
+  state.selectedOpponent = stored.opponent || "__current_season__";
 
   const selectedSeason = state.seasons.find((season) => season.value === stored.seasonId) || state.seasons[0] || null;
   state.season = selectedSeason;
@@ -1386,6 +1763,9 @@ async function refreshLeagueData(preferredPlayer = "", options = {}) {
 
     state.matches = await fetchMatchesForLeague(state.season.value, state.selectedLeagueId);
     syncNewResultsMarker(scopeKey, state.matches);
+    if (SHOW_PREDICTIONS) {
+      await loadLeaguePairHistories(state.matches, selectedLeague?.label || "");
+    }
     const participants = getParticipants(state.matches);
     state.selectedPlayer = preferredPlayer && participants.includes(preferredPlayer)
       ? preferredPlayer
@@ -1432,18 +1812,19 @@ function updateDashboard(leagueLabel, options = {}) {
   updateHeaderHeading(leagueLabel, selectedPlayer);
   updateNewDataBadge();
 
-  const standings = sortStandings(
-    buildStandings(matches),
-  );
+  let standings = buildStandings(matches);
+  if (SHOW_PREDICTIONS) {
+    standings = applyProjectedForecastsToStandings(matches, standings);
+  }
+  standings = sortStandings(standings);
   const positionChangeByPlayer = buildPositionChangeByPlayer(matches);
-  renderStandings(standings, selectedPlayer, positionChangeByPlayer);
 
   const playerMatches = selectedPlayer
     ? matches
         .filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer)
         .sort((a, b) => b.date.localeCompare(a.date))
     : [];
-  renderPlayerMatches(playerMatches, selectedPlayer || "");
+  renderSelectedPlayerMatches(selectedPlayer || "");
   renderAllMatches(matches);
 
   const participants = getParticipants(matches);
@@ -1453,31 +1834,37 @@ function updateDashboard(leagueLabel, options = {}) {
   const remainingOpponents = participants
     .filter((name) => name !== selectedPlayer)
     .filter((name) => !playedOpponents.has(name));
+  let remainingPredictionByOpponent = {};
+  let playerSummaryForRemaining = null;
+
   if (!selectedPlayer) {
     state.remainingHistoryByOpponent = {};
     elements.remainingMatchesList.innerHTML = '<p class="hint">Wybierz zawodnika, aby zobaczyć pozostałe mecze.</p>';
   } else {
-    const playerSummaryForRemaining = standings.find((entry) => entry.player === selectedPlayer) || null;
-    const remainingPredictionByOpponent = buildRemainingPredictionByOpponent(
-      matches,
-      standings,
-      selectedPlayer,
-      remainingOpponents,
-    );
-    if (!skipHistoryLoad) {
-      state.remainingHistoryByOpponent = {};
-    }
+    playerSummaryForRemaining = standings.find((entry) => entry.player === selectedPlayer) || null;
+    state.remainingHistoryByOpponent = SHOW_PREDICTIONS
+      ? buildHistoryByOpponentFromPairCache(selectedPlayer, remainingOpponents)
+      : state.remainingHistoryByOpponent;
+    remainingPredictionByOpponent = SHOW_PREDICTIONS
+      ? buildRemainingPredictionByOpponent(
+          matches,
+          standings,
+          selectedPlayer,
+          remainingOpponents,
+        )
+      : {};
     renderRemaining(remainingOpponents, selectedPlayer, remainingPredictionByOpponent, playerSummaryForRemaining);
-    if (!skipHistoryLoad) {
+    if (!SHOW_PREDICTIONS && !skipHistoryLoad) {
       loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel);
     }
   }
+
+  renderStandings(standings, selectedPlayer, positionChangeByPlayer);
 
   const playerSummary = standings.find((entry) => entry.player === selectedPlayer);
   const playerPosition = standings.findIndex((entry) => entry.player === selectedPlayer);
   const currentPoints = playerSummary?.points ?? 0;
   const totalMatchesForPlayer = (playerSummary?.played ?? 0) + (playerSummary?.remainingMatches ?? 0);
-  elements.playedCount.textContent = String(playerMatches.length);
   elements.playerPoints.textContent = String(currentPoints);
   elements.remainingCount.textContent = String(totalMatchesForPlayer);
   elements.playerPosition.textContent = playerPosition >= 0 ? String(playerPosition + 1) : "-";
@@ -1525,6 +1912,15 @@ elements.playerSelect.addEventListener("change", (event) => {
   const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
   updateDashboard(league?.label || "");
 });
+
+if (elements.opponentSelect) {
+  elements.opponentSelect.addEventListener("change", (event) => {
+    state.selectedOpponent = event.target.value;
+    saveSelections();
+    const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
+    updateDashboard(league?.label || "");
+  });
+}
 
 elements.standingsBody.addEventListener("click", (event) => {
   const row = event.target.closest("tr[data-player]");

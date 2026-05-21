@@ -67,8 +67,37 @@ model Player {
   proposalsAsOne MatchProposal[]    @relation("ProposalPlayerOne")
   proposalsAsTwo MatchProposal[]    @relation("ProposalPlayerTwo")
   inboundSms     InboundSms[]
+  weeklyAvailability PlayerWeeklyAvailability[]
+  blockedPeriods  PlayerBlockedPeriod[]
 
   @@index([league, season, status])
+}
+
+model PlayerWeeklyAvailability {
+  id        String   @id @default(cuid())
+  playerId  String
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  weekday   Int
+  startTime String
+  endTime   String
+  notes     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([playerId, weekday])
+}
+
+model PlayerBlockedPeriod {
+  id        String   @id @default(cuid())
+  playerId  String
+  player    Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  startsAt  DateTime @db.Timestamptz(3)
+  endsAt    DateTime @db.Timestamptz(3)
+  reason    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([playerId, startsAt, endsAt])
 }
 
 model Court {

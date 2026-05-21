@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   type CourtPayload,
@@ -146,6 +147,13 @@ function formatWarsawDateTime(isoValue: string) {
   }).format(new Date(isoValue));
 }
 
+function shiftDateValue(dateValue: string, days: number) {
+  const baseDate = toWarsawDate(dateValue, "12:00");
+  const shiftedDate = new Date(baseDate.getTime() + days * 24 * 60 * 60 * 1000);
+  const parts = getZonedParts(shiftedDate);
+  return `${parts.year}-${padTime(parts.month)}-${padTime(parts.day)}`;
+}
+
 export function SchedulerAdmin() {
   const [overview, setOverview] = useState<SchedulerOverview>({
     matches: [],
@@ -160,6 +168,7 @@ export function SchedulerAdmin() {
   const [leagueOptions, setLeagueOptions] = useState<SchedulerFilterOption[]>([]);
   const [activeSeasonId, setActiveSeasonId] = useState("");
   const [activeLeagueId, setActiveLeagueId] = useState("");
+  const [activePlayerFilter, setActivePlayerFilter] = useState("");
   const [remainingPairs, setRemainingPairs] = useState<RemainingPair[]>([]);
   const [matchForm, setMatchForm] = useState<ScheduledMatchPayload>(EMPTY_MATCH_FORM);
   const [matchDate, setMatchDate] = useState(() => toDateInputValue());
@@ -200,13 +209,16 @@ export function SchedulerAdmin() {
     setActiveLeagueId((current) => current || leagues[0]?.value || "");
   }
 
-  async function loadRemainingPairs(seasonId: string, leagueId: string) {
+  async function loadRemainingPairs(seasonId: string, leagueId: string, playerId = "") {
     if (!seasonId || !leagueId) {
       setRemainingPairs([]);
       return;
     }
 
     const params = new URLSearchParams({ seasonId, leagueId });
+    if (playerId) {
+      params.set("playerId", playerId);
+    }
     const response = await fetch(`/api/scheduler/remaining-pairs?${params.toString()}`, { cache: "no-store" });
     const payload = await response.json();
 
@@ -227,10 +239,14 @@ export function SchedulerAdmin() {
 
   useEffect(() => {
     startTransition(() => {
-      loadRemainingPairs(activeSeasonId, activeLeagueId).catch((loadError: unknown) => {
+      loadRemainingPairs(activeSeasonId, activeLeagueId, activePlayerFilter).catch((loadError: unknown) => {
         setError(loadError instanceof Error ? loadError.message : "Nie udało się pobrać par pozostałych do rozegrania.");
       });
     });
+  }, [activeLeagueId, activePlayerFilter, activeSeasonId]);
+
+  useEffect(() => {
+    setActivePlayerFilter("");
   }, [activeSeasonId, activeLeagueId]);
 
   const activeSeasonLabel = seasonOptions.find((option) => option.value === activeSeasonId)?.label || "";
@@ -371,6 +387,15 @@ export function SchedulerAdmin() {
     [occupancyMatches, selectedOccupancyMatchId],
   );
 
+  const playerFilterOptions = useMemo(
+    () =>
+      filteredPlayers
+        .filter((player) => player.status === "aktywny")
+        .sort((left, right) => left.fullName.localeCompare(right.fullName, "pl"))
+        .map((player) => ({ id: player.id, fullName: player.fullName })),
+    [filteredPlayers],
+  );
+
   const availableMatchTimeOptions = useMemo(() => {
     if (!selectedCourt || !selectedMatchDate) {
       return [] as string[];
@@ -437,7 +462,8 @@ export function SchedulerAdmin() {
     const playerOne = pair.playerOneId ? playersById.get(pair.playerOneId) : null;
     const playerTwo = pair.playerTwoId ? playersById.get(pair.playerTwoId) : null;
 
-    setMatchForm({
+    setMatchForm((current) => ({
+      ...current,
       season: activeSeasonLabel,
       league: activeLeagueLabel,
       playerOneId: playerOne?.id || "",
@@ -446,14 +472,9 @@ export function SchedulerAdmin() {
       playerTwoId: playerTwo?.id || "",
       playerTwo: playerTwo?.fullName || pair.playerTwoName,
       playerTwoPhone: playerTwo?.phone || "",
-      courtId: "",
-      scheduledAt: "",
-      location: "",
       status: "propozycja",
       adminNotes: pair.isMapped ? "" : "Uzupełnij mapowanie zawodnika w bazie zawodników.",
-    });
-    setMatchDate(toDateInputValue());
-    setMatchTime("");
+    }));
     setEditingMatchId(null);
   }
 
@@ -626,10 +647,26 @@ export function SchedulerAdmin() {
             <h2>Zajętość kortów</h2>
             <p>Globalny widok dzienny wszystkich rezerwacji kortów. Pomarańczowy oznacza propozycję, czerwony twardą rezerwację. Mecz zajmuje 3 sloty.</p>
           </div>
-          <label className="scheduler-inline-filter">
-            Dzień
-            <input type="date" value={occupancyDate} onChange={(event) => setOccupancyDate(event.target.value)} />
-          </label>
+          <div className="scheduler-date-nav">
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setOccupancyDate((current) => shiftDateValue(current, -1))}
+            >
+              ❮
+            </button>
+            <label className="scheduler-inline-filter">
+              Dzień
+              <input type="date" value={occupancyDate} onChange={(event) => setOccupancyDate(event.target.value)} />
+            </label>
+            <button
+              type="button"
+              className="button-secondary"
+              onClick={() => setOccupancyDate((current) => shiftDateValue(current, 1))}
+            >
+              ❯
+            </button>
+          </div>
         </div>
 
         {unassignedCourtMatches.length ? (
@@ -713,10 +750,21 @@ export function SchedulerAdmin() {
               <h2>Pary pozostałe do rozegrania</h2>
               <p>Lista dla wybranego sezonu i ligi. Kliknięcie w parę podstawia ją do formularza.</p>
             </div>
+            <label className="scheduler-inline-filter">
+              Zawodnik
+              <select value={activePlayerFilter} onChange={(event) => setActivePlayerFilter(event.target.value)}>
+                <option value="">Wszyscy</option>
+                {playerFilterOptions.map((player) => (
+                  <option key={player.id} value={player.id}>
+                    {player.fullName}
+                  </option>
+                ))}
+              </select>
+            </label>
           </div>
 
           <div className="scheduler-table-wrap">
-            <table className="scheduler-table">
+            <table className="scheduler-table scheduler-table--remaining-pairs">
               <thead>
                 <tr>
                   <th>Para</th>
@@ -736,7 +784,11 @@ export function SchedulerAdmin() {
                     return (
                       <tr key={`${pair.playerOneName}:${pair.playerTwoName}`}>
                       <td>
-                        <strong>{pair.playerOneName} vs {pair.playerTwoName}</strong>
+                        <strong>
+                          {pair.playerOneId ? <Link href={`/baza-zawodnikow/${pair.playerOneId}`} className="player-detail-link">{pair.playerOneName}</Link> : pair.playerOneName}
+                          {" vs "}
+                          {pair.playerTwoId ? <Link href={`/baza-zawodnikow/${pair.playerTwoId}`} className="player-detail-link">{pair.playerTwoName}</Link> : pair.playerTwoName}
+                        </strong>
                       </td>
                       <td>
                         <span className={`status-pill ${
@@ -935,7 +987,11 @@ export function SchedulerAdmin() {
                   <tr key={match.id}>
                     <td>{formatWarsawDateTime(match.scheduledAt)}</td>
                     <td>
-                      <strong>{match.playerOne} vs {match.playerTwo}</strong>
+                      <strong>
+                        {match.playerOneId ? <Link href={`/baza-zawodnikow/${match.playerOneId}`} className="player-detail-link">{match.playerOne}</Link> : match.playerOne}
+                        {" vs "}
+                        {match.playerTwoId ? <Link href={`/baza-zawodnikow/${match.playerTwoId}`} className="player-detail-link">{match.playerTwo}</Link> : match.playerTwo}
+                      </strong>
                       <div className="table-subtext">
                         {match.courtName ? `${match.courtName} • ` : "Bez kortu • "}
                         {match.location || "Bez miejsca"}

@@ -12,6 +12,7 @@ export async function GET(request: NextRequest) {
 
   const seasonId = request.nextUrl.searchParams.get("seasonId") || "";
   const leagueId = request.nextUrl.searchParams.get("leagueId") || "";
+  const playerId = request.nextUrl.searchParams.get("playerId") || "";
 
   if (!seasonId || !leagueId) {
     return NextResponse.json({ pairs: [] });
@@ -23,6 +24,7 @@ export async function GET(request: NextRequest) {
       seasonId,
       leagueId,
       players,
+      playerId,
     });
     return NextResponse.json({ pairs });
   } catch (error) {

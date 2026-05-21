@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/admin";
-import { buildPlayerResultsMatches, fetchResultsDirectory } from "@/lib/results-directory";
+import { buildPlayerResultsMatches, fetchResultsDirectory, invalidateResultsDirectoryCache } from "@/lib/results-directory";
 import { fetchLeagueParticipants } from "@/lib/results-matches";
 import {
   importPlayersFromResultsDirectoryInDb,
@@ -42,6 +42,7 @@ export async function POST() {
   }
 
   try {
+    invalidateResultsDirectoryCache();
     const directory = await fetchResultsDirectory();
     const summary = await importPlayersFromResultsDirectoryInDb(directory);
     return NextResponse.json(summary);

@@ -6,8 +6,10 @@ import { buildSmartProposals } from "@/lib/smart-matchmaker";
 import { parseSmsAvailabilityWithAi } from "@/lib/sms-ai-parser";
 import {
   normalizeCourtPayload,
+  normalizePlayerBlockedPeriodPayload,
   normalizePlayerProfileUpdatePayload,
   normalizePlayerPayload,
+  normalizePlayerWeeklyAvailabilityPayload,
   normalizeScheduledMatchPayload,
   type Court,
   type CourtPayload,
@@ -17,9 +19,14 @@ import {
   type MatchProposal,
   type Player,
   type PlayerAvailability,
+  type PlayerBlockedPeriod,
+  type PlayerBlockedPeriodPayload,
+  type PlayerDetail,
   type PlayerPayload,
   type PlayerProfileUpdatePayload,
   type PlayerResultsLinkPayload,
+  type PlayerWeeklyAvailability,
+  type PlayerWeeklyAvailabilityPayload,
   type ResultsDirectoryEntry,
   type SchedulerOverview,
   type ScheduledMatch,
@@ -163,6 +170,27 @@ function mapRowToAvailability(row: Record<string, unknown>): PlayerAvailability 
     endsAt: new Date(String(row.endsAt)).toISOString(),
     summary: String(row.summary || ""),
     inboundSmsId: String(row.inboundSmsId || ""),
+  };
+}
+
+function mapRowToWeeklyAvailability(row: Record<string, unknown>): PlayerWeeklyAvailability {
+  return {
+    id: String(row.id),
+    playerId: String(row.playerId),
+    weekday: Number(row.weekday),
+    startTime: String(row.startTime),
+    endTime: String(row.endTime),
+    notes: String(row.notes || ""),
+  };
+}
+
+function mapRowToBlockedPeriod(row: Record<string, unknown>): PlayerBlockedPeriod {
+  return {
+    id: String(row.id),
+    playerId: String(row.playerId),
+    startsAt: new Date(String(row.startsAt)).toISOString(),
+    endsAt: new Date(String(row.endsAt)).toISOString(),
+    reason: String(row.reason || ""),
   };
 }
 
@@ -356,6 +384,29 @@ export async function listPlayersFromDb() {
   const table = `${quoteIdentifier(schema)}.${quoteIdentifier("Player")}`;
   const result = await pool.query(`SELECT * FROM ${table} ORDER BY "league", "season", "fullName"`);
   return result.rows.map(mapRowToPlayer);
+}
+
+export async function getPlayerDetailFromDb(id: string): Promise<PlayerDetail> {
+  const { pool, schema } = getPool();
+  const playerTable = `${quoteIdentifier(schema)}.${quoteIdentifier("Player")}`;
+  const weeklyTable = `${quoteIdentifier(schema)}.${quoteIdentifier("PlayerWeeklyAvailability")}`;
+  const blockedTable = `${quoteIdentifier(schema)}.${quoteIdentifier("PlayerBlockedPeriod")}`;
+
+  const [playerResult, weeklyResult, blockedResult] = await Promise.all([
+    pool.query(`SELECT * FROM ${playerTable} WHERE "id" = $1 LIMIT 1`, [id]),
+    pool.query(`SELECT * FROM ${weeklyTable} WHERE "playerId" = $1 ORDER BY "weekday", "startTime"`, [id]),
+    pool.query(`SELECT * FROM ${blockedTable} WHERE "playerId" = $1 ORDER BY "startsAt" DESC`, [id]),
+  ]);
+
+  if (!playerResult.rows.length) {
+    throw new Error("Nie znaleziono zawodnika.");
+  }
+
+  return {
+    player: mapRowToPlayer(playerResult.rows[0]),
+    weeklyAvailability: weeklyResult.rows.map(mapRowToWeeklyAvailability),
+    blockedPeriods: blockedResult.rows.map(mapRowToBlockedPeriod),
+  };
 }
 
 export async function createPlayerInDb(payload: PlayerPayload) {
@@ -577,6 +628,57 @@ export async function listAvailabilitiesFromDb() {
   const table = `${quoteIdentifier(schema)}.${quoteIdentifier("PlayerAvailability")}`;
   const result = await pool.query(`SELECT * FROM ${table} ORDER BY "startsAt" DESC`);
   return result.rows.map(mapRowToAvailability);
+}
+
+export async function replacePlayerWeeklyAvailabilityInDb(id: string, payload: PlayerWeeklyAvailabilityPayload) {
+  const { pool, schema } = getPool();
+  const table = `${quoteIdentifier(schema)}.${quoteIdentifier("PlayerWeeklyAvailability")}`;
+  const normalized = normalizePlayerWeeklyAvailabilityPayload(payload);
+
+  await pool.query(`DELETE FROM ${table} WHERE "playerId" = $1`, [id]);
+
+  for (const entry of normalized.weeklyAvailability) {
+    await pool.query(
+      `
+        INSERT INTO ${table}
+        ("id", "playerId", "weekday", "startTime", "endTime", "notes", "createdAt", "updatedAt")
+        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+      `,
+      [randomUUID(), id, entry.weekday, entry.startTime, entry.endTime, entry.notes],
+    );
+  }
+
+  return getPlayerDetailFromDb(id);
+}
+
+export async function createPlayerBlockedPeriodInDb(id: string, payload: PlayerBlockedPeriodPayload) {
+  const { pool, schema } = getPool();
+  const table = `${quoteIdentifier(schema)}.${quoteIdentifier("PlayerBlockedPeriod")}`;
+  const normalized = normalizePlayerBlockedPeriodPayload(payload);
+  const result = await pool.query(
+    `
+      INSERT INTO ${table}
+      ("id", "playerId", "startsAt", "endsAt", "reason", "createdAt", "updatedAt")
+      VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+      RETURNING *
+    `,
+    [randomUUID(), id, normalized.startsAt, normalized.endsAt, normalized.reason],
+  );
+
+  return mapRowToBlockedPeriod(result.rows[0]);
+}
+
+export async function deletePlayerBlockedPeriodInDb(playerId: string, blockedPeriodId: string) {
+  const { pool, schema } = getPool();
+  const table = `${quoteIdentifier(schema)}.${quoteIdentifier("PlayerBlockedPeriod")}`;
+  const result = await pool.query(
+    `DELETE FROM ${table} WHERE "id" = $1 AND "playerId" = $2 RETURNING "id"`,
+    [blockedPeriodId, playerId],
+  );
+
+  if (!result.rows.length) {
+    throw new Error("Nie znaleziono okresu wyłączenia.");
+  }
 }
 
 export async function listMatchHistoryFromDb(limit = 100) {

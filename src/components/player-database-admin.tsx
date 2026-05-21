@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   type Player,
@@ -336,6 +337,9 @@ export function PlayerDatabaseAdmin() {
                             onChange={(event) => setDraftField(entry.player.id, "fullName", event.target.value)}
                             placeholder="Imię i nazwisko"
                           />
+                          <Link href={`/baza-zawodnikow/${entry.player.id}`} className="table-subtext player-detail-link">
+                            Otwórz szczegóły zawodnika
+                          </Link>
                           <input
                             value={draft.phone}
                             onChange={(event) => setDraftField(entry.player.id, "phone", event.target.value)}

@@ -94,6 +94,44 @@ export type Player = {
   notes: string;
 };
 
+export type PlayerWeeklyAvailability = {
+  id: string;
+  playerId: string;
+  weekday: number;
+  startTime: string;
+  endTime: string;
+  notes: string;
+};
+
+export type PlayerBlockedPeriod = {
+  id: string;
+  playerId: string;
+  startsAt: string;
+  endsAt: string;
+  reason: string;
+};
+
+export type PlayerDetail = {
+  player: Player;
+  weeklyAvailability: PlayerWeeklyAvailability[];
+  blockedPeriods: PlayerBlockedPeriod[];
+};
+
+export type PlayerWeeklyAvailabilityPayload = {
+  weeklyAvailability: Array<{
+    weekday: number;
+    startTime: string;
+    endTime: string;
+    notes: string;
+  }>;
+};
+
+export type PlayerBlockedPeriodPayload = {
+  startsAt: string;
+  endsAt: string;
+  reason: string;
+};
+
 export type PlayerPayload = {
   fullName: string;
   phone: string;
@@ -324,6 +362,59 @@ export function normalizePlayerProfileUpdatePayload(payload: PlayerProfileUpdate
     league,
     season,
     status: payload.status,
+  };
+}
+
+export function normalizePlayerWeeklyAvailabilityPayload(payload: PlayerWeeklyAvailabilityPayload) {
+  const weeklyAvailability = payload.weeklyAvailability
+    .map((entry) => ({
+      weekday: Number(entry.weekday),
+      startTime: entry.startTime.trim(),
+      endTime: entry.endTime.trim(),
+      notes: entry.notes.trim(),
+    }))
+    .filter((entry) => entry.startTime && entry.endTime);
+
+  for (const entry of weeklyAvailability) {
+    if (!Number.isInteger(entry.weekday) || entry.weekday < 1 || entry.weekday > 7) {
+      throw new Error("Dzień tygodnia musi być liczbą od 1 do 7.");
+    }
+
+    if (!/^\d{2}:\d{2}$/.test(entry.startTime) || !/^\d{2}:\d{2}$/.test(entry.endTime)) {
+      throw new Error("Godziny dostępności muszą mieć format HH:MM.");
+    }
+
+    if (entry.startTime >= entry.endTime) {
+      throw new Error("Godzina końcowa musi być późniejsza niż początkowa.");
+    }
+  }
+
+  return {
+    weeklyAvailability,
+  };
+}
+
+export function normalizePlayerBlockedPeriodPayload(payload: PlayerBlockedPeriodPayload) {
+  const startsAt = payload.startsAt.trim();
+  const endsAt = payload.endsAt.trim();
+  const reason = payload.reason.trim();
+
+  if (!startsAt || !endsAt) {
+    throw new Error("Początek i koniec wyłączenia są wymagane.");
+  }
+
+  if (Number.isNaN(Date.parse(startsAt)) || Number.isNaN(Date.parse(endsAt))) {
+    throw new Error("Okres wyłączenia ma nieprawidłowy format daty.");
+  }
+
+  if (new Date(startsAt).getTime() >= new Date(endsAt).getTime()) {
+    throw new Error("Koniec wyłączenia musi być późniejszy niż początek.");
+  }
+
+  return {
+    startsAt,
+    endsAt,
+    reason,
   };
 }
 

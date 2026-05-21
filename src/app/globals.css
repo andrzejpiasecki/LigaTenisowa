@@ -68,23 +68,43 @@ textarea {
 
 .primary-link,
 .button-primary,
+.button-secondary,
+.button-danger,
 .form-actions button,
 .table-actions button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-height: 2.7rem;
-  padding: 0.55rem 1rem;
-  border: 1px solid #1b4c28;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #2f8242 0%, #245f31 100%);
+  min-height: 2.8rem;
+  padding: 0.6rem 1.05rem;
+  border: 1px solid #184624;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #2d7740 0%, #205b31 100%);
   color: #fff;
   cursor: pointer;
-  font-weight: 700;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  box-shadow: 0 10px 22px rgba(23, 61, 34, 0.14);
+  transition:
+    transform 140ms ease,
+    box-shadow 140ms ease,
+    background 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+.primary-link:hover,
+.button-primary:hover,
+.form-actions button:hover,
+.table-actions button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 28px rgba(23, 61, 34, 0.18);
 }
 
 .primary-link:disabled,
 .button-primary:disabled,
+.button-secondary:disabled,
+.button-danger:disabled,
 .form-actions button:disabled,
 .table-actions button:disabled {
   cursor: not-allowed;
@@ -93,9 +113,15 @@ textarea {
 }
 
 .button-secondary {
-  border-color: var(--shell-line);
-  background: #fff;
-  color: var(--shell-text);
+  border-color: #cfd8ca;
+  background: linear-gradient(180deg, #ffffff 0%, #f1f5ee 100%);
+  color: #223122;
+  box-shadow: 0 8px 18px rgba(24, 42, 26, 0.08);
+}
+
+.button-secondary:hover {
+  border-color: #b8c7b2;
+  background: linear-gradient(180deg, #ffffff 0%, #ebf2e7 100%);
 }
 
 .button-danger {
@@ -351,6 +377,17 @@ textarea {
   overflow-x: auto;
 }
 
+.player-detail-link {
+  color: var(--shell-brand-dark);
+  text-decoration: underline;
+  text-decoration-color: rgba(23, 61, 34, 0.28);
+  text-underline-offset: 0.14em;
+}
+
+.player-detail-link:hover {
+  text-decoration-color: currentColor;
+}
+
 .scheduler-inline-filter {
   display: grid;
   gap: 0.35rem;
@@ -358,7 +395,8 @@ textarea {
   font-size: 0.92rem;
 }
 
-.scheduler-inline-filter input {
+.scheduler-inline-filter input,
+.scheduler-inline-filter select {
   min-width: 11rem;
   border: 1px solid var(--shell-line);
   border-radius: 12px;
@@ -367,8 +405,53 @@ textarea {
   color: var(--shell-text);
 }
 
+.scheduler-date-nav {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.scheduler-date-nav .button-secondary {
+  min-width: auto;
+  min-height: 2.6rem;
+  padding: 0 0.35rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 1.25rem;
+  font-weight: 900;
+  line-height: 1;
+  align-self: flex-end;
+}
+
+.scheduler-date-nav .button-secondary:hover {
+  color: var(--shell-brand-dark);
+  transform: scale(1.12);
+}
+
+.scheduler-date-nav .scheduler-inline-filter {
+  margin: 0;
+}
+
 .court-occupancy {
   overflow-x: auto;
+}
+
+.player-availability-row {
+  display: grid;
+  grid-template-columns: 1.1fr 0.8fr 0.8fr 1.3fr auto;
+  gap: 0.75rem;
+}
+
+.player-availability-row input,
+.player-availability-row select {
+  width: 100%;
+  border: 1px solid var(--shell-line);
+  border-radius: 12px;
+  padding: 0.72rem 0.8rem;
+  background: #fff;
+  color: var(--shell-text);
 }
 
 .court-occupancy__grid {
@@ -634,6 +717,15 @@ textarea {
 .scheduler-table {
   width: 100%;
   border-collapse: collapse;
+}
+
+.scheduler-table--remaining-pairs {
+  font-size: 0.9rem;
+}
+
+.scheduler-table--remaining-pairs strong {
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 .scheduler-table th,

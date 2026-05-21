@@ -148,6 +148,7 @@ export async function fetchRemainingPairs(params: {
   seasonId: string;
   leagueId: string;
   players: Player[];
+  playerId?: string;
 }) {
   const context = await fetchFormContext();
   const season = context.seasonOptions.find((option) => option.value === params.seasonId);
@@ -206,6 +207,10 @@ export async function fetchRemainingPairs(params: {
         continue;
       }
 
+      if (params.playerId && playerOne?.id !== params.playerId && playerTwo?.id !== params.playerId) {
+        continue;
+      }
+
       remainingPairs.push({
         playerOneName,
         playerTwoName,
@@ -216,7 +221,7 @@ export async function fetchRemainingPairs(params: {
     }
   }
 
-  return remainingPairs.slice(0, 250);
+  return params.playerId ? remainingPairs : remainingPairs.slice(0, 250);
 }
 
 export async function fetchLeagueParticipants(params: {

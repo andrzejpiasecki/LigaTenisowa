@@ -89,7 +89,7 @@
                 <th>#</th>
                 <th data-sort-key="player">Gracz</th>
                 <th data-sort-key="points">Pkt</th>
-                <th data-sort-key="maxAvgPoints">Prog.</th>
+                <th data-sort-key="maxAvgPoints" data-prediction-column>Prog.</th>
                 <th data-sort-key="wins">Z</th>
                 <th data-sort-key="losses">P</th>
               </tr>
@@ -100,7 +100,13 @@
       </section>
 
       <section class="panel" aria-label="Mecze gracza">
-        <h2>Mecze rozegrane</h2>
+        <div class="panel-head player-matches-head">
+          <h2>Mecze rozegrane</h2>
+          <label>
+            Przeciwnik
+            <select id="opponentSelect"></select>
+          </label>
+        </div>
         <div class="table-wrap">
           <table id="playerMatchesTable">
             <thead>

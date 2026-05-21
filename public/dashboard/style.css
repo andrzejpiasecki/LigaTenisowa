@@ -102,6 +102,14 @@ body {
   align-items: end;
 }
 
+.player-matches-head {
+  align-items: end;
+}
+
+.player-matches-head label {
+  min-width: min(320px, 100%);
+}
+
 label {
   display: grid;
   gap: 0.25rem;
@@ -421,6 +429,10 @@ th[data-sort-key].sorted-asc::after {
 th[data-sort-key].sorted-desc::after {
   content: "▼";
   color: var(--brand-strong);
+}
+
+.hide-predictions [data-prediction-column] {
+  display: none;
 }
 
 tr:last-child td {

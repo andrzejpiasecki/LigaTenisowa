@@ -1,6 +1,32 @@
 import { type Player, type PlayerResultsMatch, type ResultsDirectoryEntry } from "@/lib/scheduled-matches";
 
 const TARGET_ORIGIN = "http://tenisv.pl";
+const RESULTS_CACHE_TTL_MS = 30 * 60 * 1000;
+
+type ResultsDirectoryCache = {
+  directory?: ResultsDirectoryEntry[];
+  directoryFetchedAt?: number;
+  filters?: ResultsFilters;
+  filtersFetchedAt?: number;
+  formHtml?: string;
+  formHtmlFetchedAt?: number;
+};
+
+const globalResultsCache = globalThis as typeof globalThis & {
+  ligaResultsCache?: ResultsDirectoryCache;
+};
+
+function getResultsCache() {
+  if (!globalResultsCache.ligaResultsCache) {
+    globalResultsCache.ligaResultsCache = {};
+  }
+
+  return globalResultsCache.ligaResultsCache;
+}
+
+function isFresh(timestamp?: number) {
+  return typeof timestamp === "number" && Date.now() - timestamp < RESULTS_CACHE_TTL_MS;
+}
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -148,6 +174,11 @@ export type ResultsFilters = {
 };
 
 export async function fetchResultsDirectory() {
+  const cache = getResultsCache();
+  if (cache.directory && isFresh(cache.directoryFetchedAt)) {
+    return cache.directory;
+  }
+
   const { formHtml } = await fetchResultsFormHtml();
   const entries = extractSelectOptions(formHtml, "id_gracz");
   const uniqueByName = new Map<string, ResultsDirectoryEntry>();
@@ -158,10 +189,18 @@ export async function fetchResultsDirectory() {
     }
   }
 
-  return [...uniqueByName.values()].sort((left, right) => left.name.localeCompare(right.name, "pl"));
+  const directory = [...uniqueByName.values()].sort((left, right) => left.name.localeCompare(right.name, "pl"));
+  cache.directory = directory;
+  cache.directoryFetchedAt = Date.now();
+  return directory;
 }
 
 async function fetchResultsFormHtml() {
+  const cache = getResultsCache();
+  if (cache.formHtml && isFresh(cache.formHtmlFetchedAt)) {
+    return { formHtml: cache.formHtml };
+  }
+
   const framesResponse = await fetch(`${TARGET_ORIGIN}/r_mecze.php`, { cache: "no-store" });
   if (!framesResponse.ok) {
     throw new Error(`Nie udało się pobrać listy wyników (${framesResponse.status}).`);
@@ -176,10 +215,17 @@ async function fetchResultsFormHtml() {
   }
 
   const formHtml = await formResponse.text();
+  cache.formHtml = formHtml;
+  cache.formHtmlFetchedAt = Date.now();
   return { formHtml };
 }
 
 export async function fetchResultsFilters(): Promise<ResultsFilters> {
+  const cache = getResultsCache();
+  if (cache.filters && isFresh(cache.filtersFetchedAt)) {
+    return cache.filters;
+  }
+
   const { formHtml } = await fetchResultsFormHtml();
   const seasons = extractSelectOptions(formHtml, "id_sezon").map((entry) => ({ value: entry.id, label: entry.name }));
   const leagues = extractSelectOptions(formHtml, "id_liga").map((entry) => ({ value: entry.id, label: entry.name }));
@@ -200,11 +246,24 @@ export async function fetchResultsFilters(): Promise<ResultsFilters> {
     currentSeason = seasons.find((option) => option.value) || null;
   }
 
-  return {
+  const filters = {
     seasons,
     leagues,
     currentSeason,
   };
+  cache.filters = filters;
+  cache.filtersFetchedAt = Date.now();
+  return filters;
+}
+
+export function invalidateResultsDirectoryCache() {
+  const cache = getResultsCache();
+  cache.directory = undefined;
+  cache.directoryFetchedAt = undefined;
+  cache.filters = undefined;
+  cache.filtersFetchedAt = undefined;
+  cache.formHtml = undefined;
+  cache.formHtmlFetchedAt = undefined;
 }
 
 export function buildPlayerResultsMatches(players: Player[], directory: ResultsDirectoryEntry[]): PlayerResultsMatch[] {

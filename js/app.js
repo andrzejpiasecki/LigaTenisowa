@@ -590,12 +590,25 @@ function calculateExpectedPointsPerFutureMatch(
 ) {
   const strengthEdge = playerStrength - opponentsStrength;
   const dominance = clampNumber(0.5 + strengthEdge * 1.35, 0, 1);
-  const winPointsModel = 3 + dominance * 2;
+  const winPointsModel = 2.7 + dominance * 1.9;
   const lossTightness = 1 - Math.min(1, Math.abs(strengthEdge) * 1.8);
-  const lossPointsModel = 1 + lossTightness;
-  const calibratedWinPoints = clampNumber(avgWinnerPoints * 0.4 + winPointsModel * 0.6, 3, 5);
-  const calibratedLossPoints = clampNumber(avgLoserPoints * 0.4 + lossPointsModel * 0.6, 1, 2);
+  const lossPointsModel = 1 + lossTightness * 0.7;
+  const calibratedWinPoints = clampNumber(avgWinnerPoints * 0.55 + winPointsModel * 0.45, 2.6, 4.9);
+  const calibratedLossPoints = clampNumber(avgLoserPoints * 0.5 + lossPointsModel * 0.5, 1, 1.9);
   return winChance * calibratedWinPoints + (1 - winChance) * calibratedLossPoints;
+}
+
+function calculateBaseWinChance(playerWinRate, playerStrength, opponentsStrength) {
+  const strengthEdge = playerStrength - opponentsStrength;
+  let winChance = 0.05 + playerWinRate * 0.6 + strengthEdge * 0.22;
+
+  if (playerWinRate < 0.25) {
+    winChance *= 0.58;
+  } else if (playerWinRate < 0.35) {
+    winChance *= 0.74;
+  }
+
+  return clampNumber(winChance, 0.02, 0.9);
 }
 
 function calculateHeadToHeadAdjustment(selectedPlayer, opponent, pairMatches) {
@@ -758,11 +771,7 @@ function buildStandings(matches) {
     const playerWinRate = (entry.wins + 1) / (entry.played + 2);
     const playerStrength = pointsPerMatch(entry) / 5;
     const opponentsStrength = avgRemainingOpponentStrength / 5;
-    const winChance = clampNumber(
-      0.12 + playerWinRate * 0.7 + (playerStrength - opponentsStrength) * 0.35,
-      0.03,
-      0.97,
-    );
+    const winChance = calculateBaseWinChance(playerWinRate, playerStrength, opponentsStrength);
 
     const playableFutureMatches = estimatePlayableFutureMatches(
       entry,
@@ -919,25 +928,46 @@ function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, 
   const playerWinRate = (playerEntry.wins + 1) / (playerEntry.played + 2);
   const playerStrength = playerPointsPerMatch / 5;
 
+  const historicalSamples = Object.values(state.remainingHistoryByOpponent || {})
+    .flatMap((bucket) => bucket?.matches || [])
+    .filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer);
+
+  let historicalPointsTotal = 0;
+  let historicalWins = 0;
+  for (const match of historicalSamples) {
+    const pts = calculatePointsForMatch(match);
+    const isWin = match.winner === selectedPlayer;
+    historicalPointsTotal += isWin ? pts.winnerPoints : pts.loserPoints;
+    if (isWin) {
+      historicalWins += 1;
+    }
+  }
+
+  const historicalWinRate = historicalSamples.length > 0
+    ? (historicalWins + 1) / (historicalSamples.length + 2)
+    : null;
+  const historicalPointsPerMatch = historicalSamples.length > 0
+    ? historicalPointsTotal / historicalSamples.length
+    : null;
+
+  const globalWeaknessFactor = historicalWinRate === null
+    ? 1
+    : historicalWinRate < 0.22
+      ? 0.62
+      : historicalWinRate < 0.3
+        ? 0.74
+        : historicalWinRate < 0.4
+          ? 0.86
+          : 1;
+
   for (const opponent of remainingOpponents) {
     const opponentEntry = pointsByPlayer.get(opponent);
     const opponentPointsPerMatch = opponentEntry && opponentEntry.played > 0
       ? opponentEntry.points / opponentEntry.played
       : leagueAvgPointsPerMatchPerPlayer;
     const opponentsStrength = opponentPointsPerMatch / 5;
-    const winChance = clampNumber(
-      0.12 + playerWinRate * 0.7 + (playerStrength - opponentsStrength) * 0.35,
-      0.03,
-      0.97,
-    );
+    let winChance = calculateBaseWinChance(playerWinRate, playerStrength, opponentsStrength);
 
-    const expectedPoints = calculateExpectedPointsPerFutureMatch(
-      winChance,
-      playerStrength,
-      opponentsStrength,
-      avgWinnerPoints,
-      avgLoserPoints,
-    );
     const pairCurrentSeasonMatches = matches.filter(
       (match) =>
         (match.winner === selectedPlayer && match.loser === opponent)
@@ -953,14 +983,100 @@ function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, 
       opponent,
       [...allPairMatchesBySignature.values()],
     );
+
+    const pairMatches = [...allPairMatchesBySignature.values()];
+    const pairWins = pairMatches.filter((match) => match.winner === selectedPlayer).length;
+    const pairLosses = pairMatches.filter((match) => match.loser === selectedPlayer).length;
+    if (pairMatches.length > 0) {
+      const h2hWins = pairMatches.filter((match) => match.winner === selectedPlayer).length;
+      const bayesWinRate = (h2hWins + 1) / (pairMatches.length + 2);
+      const h2hWeight = clampNumber(pairMatches.length / 6, 0.2, 0.8);
+      winChance = clampNumber(winChance * (1 - h2hWeight) + bayesWinRate * h2hWeight, 0.02, 0.9);
+    }
+
+    if (historicalWinRate !== null) {
+      const overallWeight = clampNumber(historicalSamples.length / 18, 0.2, 0.75);
+      winChance = clampNumber(winChance * (1 - overallWeight) + historicalWinRate * overallWeight, 0.02, 0.9);
+    }
+
+    winChance = clampNumber(winChance * globalWeaknessFactor, 0.02, 0.9);
+
+    const expectedPoints = calculateExpectedPointsPerFutureMatch(
+      winChance,
+      playerStrength,
+      opponentsStrength,
+      avgWinnerPoints,
+      avgLoserPoints,
+    );
+
     let adjustedExpected = expectedPoints + h2h.pointsAdjustment;
+
+    const severeH2HLoss = (() => {
+      if (!pairMatches.length) {
+        return false;
+      }
+
+      const recentMatches = [...pairMatches]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 3);
+
+      let heavyLosses = 0;
+      for (const match of recentMatches) {
+        const lost = match.loser === selectedPlayer;
+        if (!lost) {
+          continue;
+        }
+
+        const ownGames = (match.sets || []).reduce((sum, set) => sum + set.second, 0);
+        const oppGames = (match.sets || []).reduce((sum, set) => sum + set.first, 0);
+        const ownSets = match.result.loserSets;
+        const oppSets = match.result.winnerSets;
+        const gameDiff = oppGames - ownGames;
+
+        if (oppSets - ownSets >= 2 && gameDiff >= 8) {
+          heavyLosses += 1;
+        }
+      }
+
+      return heavyLosses >= 1;
+    })();
+
+    if (pairLosses > 0 && pairWins === 0 && severeH2HLoss) {
+      result[opponent] = 1;
+      continue;
+    }
+
+    if (historicalPointsPerMatch !== null) {
+      const histPointsWeight = clampNumber(historicalSamples.length / 20, 0.2, 0.7);
+      adjustedExpected = adjustedExpected * (1 - histPointsWeight) + historicalPointsPerMatch * histPointsWeight;
+    }
     if (h2h.confidence > 0.4 && h2h.dominance <= -0.65) {
-      adjustedExpected = Math.min(adjustedExpected, 2.2);
+      adjustedExpected = Math.min(adjustedExpected, 1.9);
     } else if (h2h.confidence > 0.3 && h2h.dominance <= -0.4) {
-      adjustedExpected = Math.min(adjustedExpected, 2.6);
+      adjustedExpected = Math.min(adjustedExpected, 2.2);
     } else if (h2h.confidence > 0.4 && h2h.dominance >= 0.65) {
       adjustedExpected = Math.max(adjustedExpected, 3.5);
     }
+
+    if (severeH2HLoss || (h2h.confidence > 0.45 && h2h.dominance <= -0.72)) {
+      adjustedExpected = Math.min(adjustedExpected, 1.35);
+    }
+
+    if (winChance < 0.2) {
+      adjustedExpected = Math.min(adjustedExpected, 1.8);
+    } else if (winChance < 0.32) {
+      adjustedExpected = Math.min(adjustedExpected, 2.2);
+    } else if (winChance < 0.45) {
+      adjustedExpected = Math.min(adjustedExpected, 2.7);
+    }
+
+    if (opponentsStrength > 0.62 && winChance < 0.35) {
+      adjustedExpected = Math.min(adjustedExpected, 2.0);
+    }
+    if (opponentsStrength > 0.7 && winChance < 0.28) {
+      adjustedExpected = Math.min(adjustedExpected, 1.7);
+    }
+
     result[opponent] = Math.round(clampNumber(adjustedExpected, 1, 5));
   }
 
@@ -1061,15 +1177,21 @@ function renderAllMatches(matches) {
 }
 
 function renderRemaining(remainingOpponents, selectedPlayer, remainingPredictionByOpponent = {}, playerSummary = null) {
-  const predictedPoints = playerSummary?.maxAvgPoints ?? 0;
   const currentPoints = playerSummary?.points ?? 0;
-  const maxPoints = playerSummary?.maxPoints ?? 0;
   const remainingMatches = playerSummary?.remainingMatches ?? 0;
   const assumedPlayedMatches = playerSummary?.assumedPlayedMatches ?? 0;
+  const predictionValues = remainingOpponents.map((opponent) => Number(remainingPredictionByOpponent[opponent] || 0));
+  const rawPredictedGain = predictionValues.reduce((sum, value) => sum + value, 0);
+  const playRate = remainingMatches > 0
+    ? clampNumber(assumedPlayedMatches / remainingMatches, 0, 1)
+    : 0;
+  const scaledPredictedGain = Math.round(rawPredictedGain * playRate);
+  const predictedPoints = currentPoints + scaledPredictedGain;
+  const maxPoints = playerSummary?.maxPoints ?? 0;
   const summary = `
     <div class="remaining-summary">
       <p class="remaining-summary-title">Predykcja końcowej liczby punktów: ${predictedPoints} pkt</p>
-      <p class="remaining-summary-details">Obecnie: ${currentPoints} pkt | Matematyczne maksimum: ${maxPoints} pkt | Pozostałe mecze: ${remainingMatches} ${formatMatchesWord(remainingMatches)} | Założone do rozegrania: ${assumedPlayedMatches} ${formatMatchesWord(assumedPlayedMatches)}</p>
+      <p class="remaining-summary-details">Obecnie: ${currentPoints} pkt | Matematyczne maksimum: ${maxPoints} pkt | Pozostałe mecze: ${remainingMatches} ${formatMatchesWord(remainingMatches)} | Założone do rozegrania: ${assumedPlayedMatches} ${formatMatchesWord(assumedPlayedMatches)} | Skalowanie aktywności: ${Math.round(playRate * 100)}%</p>
     </div>
   `;
 

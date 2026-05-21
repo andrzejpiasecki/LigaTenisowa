@@ -1,7 +1,26 @@
 import { NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/admin";
-import { updatePlayerProfileInDb, updatePlayerResultsLinkInDb } from "@/lib/scheduled-matches-db";
+import { getPlayerDetailFromDb, updatePlayerProfileInDb, updatePlayerResultsLinkInDb } from "@/lib/scheduled-matches-db";
 import { type PlayerProfileUpdatePayload, type PlayerResultsLinkPayload } from "@/lib/scheduled-matches";
+
+export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const access = await requireAdminUser();
+
+  if (!access.userId || !access.isAdmin) {
+    return NextResponse.json({ error: "Brak dostępu." }, { status: 403 });
+  }
+
+  try {
+    const id = (await context.params).id;
+    const detail = await getPlayerDetailFromDb(id);
+    return NextResponse.json(detail);
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Nie udało się pobrać zawodnika." },
+      { status: 400 },
+    );
+  }
+}
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const access = await requireAdminUser();
