@@ -247,6 +247,14 @@ select:focus-visible {
   gap: 1rem;
 }
 
+.player-matches-head {
+  align-items: end;
+}
+
+.player-matches-head label {
+  min-width: min(320px, 100%);
+}
+
 .panel-head h2,
 .panel h2 {
   margin: 0;

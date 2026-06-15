@@ -6,3 +6,7 @@ dist
 .cache
 .vercel
 .env*.local
+.next
+.clerk
+next-env.d.ts
+.idea

@@ -15,13 +15,16 @@ const state = {
   leagues: [],
   selectedLeagueId: "",
   selectedPlayer: "",
+  selectedOpponent: "__current_season__",
   matches: [],
   formDefaults: null,
   shareMode: Boolean(SHARE_DATA),
   leagueHtmlById: SHARE_DATA?.leagueHtmlById || {},
   playerIdByName: {},
   remainingHistoryByOpponent: {},
+  playerMatchesHistoryByPlayerId: {},
   historyRequestToken: 0,
+  playerMatchesRequestToken: 0,
   standingsSort: {
     key: "points",
     direction: "desc",
@@ -38,6 +41,7 @@ const elements = {
   seasonSelect: document.getElementById("seasonSelect"),
   leagueSelect: document.getElementById("leagueSelect"),
   playerSelect: document.getElementById("playerSelect"),
+  opponentSelect: document.getElementById("opponentSelect"),
   refreshButton: document.getElementById("refreshButton"),
   toggleControlsButton: document.getElementById("toggleControlsButton"),
   controlsContent: document.getElementById("controlsContent"),
@@ -129,6 +133,7 @@ function saveSelections() {
     seasonId: state.season?.value || "",
     leagueId: state.selectedLeagueId || "",
     player: state.selectedPlayer || "",
+    opponent: state.selectedOpponent || "__current_season__",
     controlsCollapsed: Boolean(elements.controlsContent?.hidden),
   };
   saveJsonStorage(STORAGE_KEY, payload);
@@ -406,6 +411,22 @@ function buildMatchesPayload(seasonId, leagueId) {
   payload.append("id_liga", leagueId ?? defaults.id_liga ?? "");
   payload.append("id_gracz", defaults.id_gracz || "");
   payload.append("id_gracz2", defaults.id_gracz2 || "");
+  payload.append("sort", defaults.sort || "data DESC");
+  payload.append("limit", "500");
+  payload.append("show", defaults.show || "go");
+
+  return payload;
+}
+
+function buildPlayerMatchesPayload(playerId) {
+  const defaults = state.formDefaults || {};
+  const payload = new URLSearchParams();
+
+  payload.append("show_strona", defaults.show_strona || "1");
+  payload.append("id_sezon", "");
+  payload.append("id_liga", "");
+  payload.append("id_gracz", playerId || "");
+  payload.append("id_gracz2", "");
   payload.append("sort", defaults.sort || "data DESC");
   payload.append("limit", "500");
   payload.append("show", defaults.show || "go");
@@ -1038,6 +1059,39 @@ function renderPlayerMatches(matches, selectedPlayer) {
   elements.playerMatchesBody.innerHTML = rows || '<tr><td colspan="3">Brak rozegranych meczów.</td></tr>';
 }
 
+function getMatchOpponent(match, selectedPlayer) {
+  if (match.winner === selectedPlayer) return match.loser;
+  if (match.loser === selectedPlayer) return match.winner;
+  return "";
+}
+
+function updateOpponentSelect(matches, selectedPlayer) {
+  if (!elements.opponentSelect) return;
+
+  const opponents = [...new Set(matches.map((match) => getMatchOpponent(match, selectedPlayer)).filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b, "pl"));
+
+  if (state.selectedOpponent && state.selectedOpponent !== "__current_season__" && !opponents.includes(state.selectedOpponent)) {
+    state.selectedOpponent = "__current_season__";
+  }
+
+  fillSelect(
+    elements.opponentSelect,
+    [
+      { value: "__current_season__", label: "Aktualny sezon" },
+      ...opponents.map((opponent) => ({ value: opponent, label: titleCase(opponent) })),
+    ],
+    state.selectedOpponent || "__current_season__",
+  );
+}
+
+function filterMatchesByOpponent(matches, selectedPlayer) {
+  if (!state.selectedOpponent || state.selectedOpponent === "__current_season__") {
+    return matches;
+  }
+  return matches.filter((match) => getMatchOpponent(match, selectedPlayer) === state.selectedOpponent);
+}
+
 function renderAllMatches(matches) {
   const rows = [...matches]
     .sort((a, b) => b.date.localeCompare(a.date))
@@ -1061,15 +1115,17 @@ function renderAllMatches(matches) {
 }
 
 function renderRemaining(remainingOpponents, selectedPlayer, remainingPredictionByOpponent = {}, playerSummary = null) {
-  const predictedPoints = playerSummary?.maxAvgPoints ?? 0;
-  const currentPoints = playerSummary?.points ?? 0;
-  const maxPoints = playerSummary?.maxPoints ?? 0;
-  const remainingMatches = playerSummary?.remainingMatches ?? 0;
-  const assumedPlayedMatches = playerSummary?.assumedPlayedMatches ?? 0;
+  const prediction = calculatePredictionTotals(playerSummary, remainingOpponents, remainingPredictionByOpponent);
+  const currentPoints = prediction.currentPoints;
+  const remainingMatches = prediction.remainingMatches;
+  const assumedPlayedMatches = prediction.assumedPlayedMatches;
+  const predictedPoints = prediction.predictedPoints;
+  const predictedPointsWithMaxMatches = prediction.predictedPointsWithMaxMatches;
   const summary = `
     <div class="remaining-summary">
-      <p class="remaining-summary-title">Predykcja końcowej liczby punktów: ${predictedPoints} pkt</p>
-      <p class="remaining-summary-details">Obecnie: ${currentPoints} pkt | Matematyczne maksimum: ${maxPoints} pkt | Pozostałe mecze: ${remainingMatches} ${formatMatchesWord(remainingMatches)} | Założone do rozegrania: ${assumedPlayedMatches} ${formatMatchesWord(assumedPlayedMatches)}</p>
+      <p class="remaining-summary-title">Prognoza: ${predictedPoints} pkt (realnie ${assumedPlayedMatches} ${formatMatchesWord(assumedPlayedMatches)})</p>
+      <p class="remaining-summary-title">Prognoza: ${predictedPointsWithMaxMatches} pkt (wszystkie ${remainingMatches} ${formatMatchesWord(remainingMatches)})</p>
+      <p class="remaining-summary-details">Obecnie: ${currentPoints} pkt | Pozostałe mecze: ${remainingMatches} ${formatMatchesWord(remainingMatches)}</p>
     </div>
   `;
 
@@ -1137,6 +1193,26 @@ function renderRemaining(remainingOpponents, selectedPlayer, remainingPrediction
   `;
 
   elements.remainingMatchesList.innerHTML = `${table}${summary}`;
+}
+
+function calculatePredictionTotals(playerSummary, remainingOpponents, remainingPredictionByOpponent = {}) {
+  const currentPoints = playerSummary?.points ?? 0;
+  const remainingMatches = playerSummary?.remainingMatches ?? 0;
+  const assumedPlayedMatches = playerSummary?.assumedPlayedMatches ?? 0;
+  const predictedGainWithMaxMatches = remainingOpponents
+    .map((opponent) => Number(remainingPredictionByOpponent[opponent] || 0))
+    .reduce((sum, value) => sum + value, 0);
+  const playRate = remainingMatches > 0
+    ? clampNumber(assumedPlayedMatches / remainingMatches, 0, 1)
+    : 0;
+
+  return {
+    currentPoints,
+    remainingMatches,
+    assumedPlayedMatches,
+    predictedPoints: currentPoints + Math.round(predictedGainWithMaxMatches * playRate),
+    predictedPointsWithMaxMatches: currentPoints + predictedGainWithMaxMatches,
+  };
 }
 
 function formatMatchesWord(count) {
@@ -1230,6 +1306,66 @@ async function fetchMatchesForLeague(seasonId, leagueId) {
   return parseMatches(htmlToDocument(html));
 }
 
+async function fetchPlayerMatchesHistory(playerName) {
+  if (!playerName) return [];
+
+  if (state.shareMode) {
+    return state.matches.filter((match) => match.winner === playerName || match.loser === playerName);
+  }
+
+  const playerId = getPlayerIdByName(playerName);
+  if (!playerId) return [];
+
+  if (state.playerMatchesHistoryByPlayerId[playerId]) {
+    return state.playerMatchesHistoryByPlayerId[playerId];
+  }
+
+  const payload = buildPlayerMatchesPayload(playerId);
+  const html = await postForm(API_MATCHES_URL, payload);
+  const matches = parseMatches(htmlToDocument(html));
+  state.playerMatchesHistoryByPlayerId[playerId] = matches;
+  return matches;
+}
+
+async function renderSelectedPlayerMatches(selectedPlayer) {
+  const token = ++state.playerMatchesRequestToken;
+
+  if (!selectedPlayer) {
+    updateOpponentSelect([], "");
+    renderPlayerMatches([], "");
+    elements.playedCount.textContent = "0";
+    return;
+  }
+
+  const currentSeasonMatches = state.matches
+    .filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer)
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  if (!state.selectedOpponent || state.selectedOpponent === "__current_season__") {
+    renderPlayerMatches(currentSeasonMatches, selectedPlayer);
+    elements.playedCount.textContent = String(currentSeasonMatches.length);
+  } else {
+    elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Ładowanie historycznych meczów gracza...</td></tr>';
+  }
+
+  try {
+    const historicalMatches = await fetchPlayerMatchesHistory(selectedPlayer);
+    if (token !== state.playerMatchesRequestToken || state.selectedPlayer !== selectedPlayer) return;
+
+    const sortedHistory = historicalMatches.sort((a, b) => b.date.localeCompare(a.date));
+    updateOpponentSelect(sortedHistory, selectedPlayer);
+
+    if (!state.selectedOpponent || state.selectedOpponent === "__current_season__") return;
+
+    const filteredMatches = filterMatchesByOpponent(sortedHistory, selectedPlayer);
+    renderPlayerMatches(filteredMatches, selectedPlayer);
+    elements.playedCount.textContent = String(filteredMatches.length);
+  } catch {
+    if (token !== state.playerMatchesRequestToken) return;
+    elements.playerMatchesBody.innerHTML = '<tr><td colspan="3">Nie udało się pobrać historycznych meczów gracza.</td></tr>';
+  }
+}
+
 async function fetchHeadToHeadHistory(playerAId, playerBId) {
   if (!playerAId || !playerBId) {
     return [];
@@ -1314,7 +1450,7 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents, league
   );
 
   if (token === state.historyRequestToken) {
-    const latestStandingsSnapshot = sortStandings(buildStandings(state.matches));
+    let latestStandingsSnapshot = sortStandings(buildStandings(state.matches));
     const latestRemainingPredictionByOpponent = buildRemainingPredictionByOpponent(
       state.matches,
       latestStandingsSnapshot,
@@ -1322,8 +1458,16 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents, league
       remainingOpponents,
     );
     const latestPlayerSummary = latestStandingsSnapshot.find((entry) => entry.player === selectedPlayer);
+    if (latestPlayerSummary) {
+      latestPlayerSummary.maxAvgPoints = calculatePredictionTotals(
+        latestPlayerSummary,
+        remainingOpponents,
+        latestRemainingPredictionByOpponent,
+      ).predictedPoints;
+      latestStandingsSnapshot = sortStandings(latestStandingsSnapshot);
+      renderStandings(latestStandingsSnapshot, selectedPlayer, buildPositionChangeByPlayer(state.matches));
+    }
     renderRemaining(remainingOpponents, selectedPlayer, latestRemainingPredictionByOpponent, latestPlayerSummary);
-    updateDashboard(leagueLabel, { skipHistoryLoad: true });
   }
 }
 
@@ -1338,6 +1482,7 @@ async function initialize() {
     : Boolean(stored.controlsCollapsed);
   setControlsCollapsed(initialControlsCollapsed);
   state.seasons = context.allSeasons;
+  state.selectedOpponent = stored.opponent || "__current_season__";
 
   const selectedSeason = state.seasons.find((season) => season.value === stored.seasonId) || state.seasons[0] || null;
   state.season = selectedSeason;
@@ -1432,18 +1577,17 @@ function updateDashboard(leagueLabel, options = {}) {
   updateHeaderHeading(leagueLabel, selectedPlayer);
   updateNewDataBadge();
 
-  const standings = sortStandings(
+  let standings = sortStandings(
     buildStandings(matches),
   );
   const positionChangeByPlayer = buildPositionChangeByPlayer(matches);
-  renderStandings(standings, selectedPlayer, positionChangeByPlayer);
 
   const playerMatches = selectedPlayer
     ? matches
         .filter((match) => match.winner === selectedPlayer || match.loser === selectedPlayer)
         .sort((a, b) => b.date.localeCompare(a.date))
     : [];
-  renderPlayerMatches(playerMatches, selectedPlayer || "");
+  renderSelectedPlayerMatches(selectedPlayer || "");
   renderAllMatches(matches);
 
   const participants = getParticipants(matches);
@@ -1467,17 +1611,27 @@ function updateDashboard(leagueLabel, options = {}) {
     if (!skipHistoryLoad) {
       state.remainingHistoryByOpponent = {};
     }
+    if (playerSummaryForRemaining) {
+      const predictionTotals = calculatePredictionTotals(
+        playerSummaryForRemaining,
+        remainingOpponents,
+        remainingPredictionByOpponent,
+      );
+      playerSummaryForRemaining.maxAvgPoints = predictionTotals.predictedPoints;
+      standings = sortStandings(standings);
+    }
     renderRemaining(remainingOpponents, selectedPlayer, remainingPredictionByOpponent, playerSummaryForRemaining);
     if (!skipHistoryLoad) {
       loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel);
     }
   }
 
+  renderStandings(standings, selectedPlayer, positionChangeByPlayer);
+
   const playerSummary = standings.find((entry) => entry.player === selectedPlayer);
   const playerPosition = standings.findIndex((entry) => entry.player === selectedPlayer);
   const currentPoints = playerSummary?.points ?? 0;
   const totalMatchesForPlayer = (playerSummary?.played ?? 0) + (playerSummary?.remainingMatches ?? 0);
-  elements.playedCount.textContent = String(playerMatches.length);
   elements.playerPoints.textContent = String(currentPoints);
   elements.remainingCount.textContent = String(totalMatchesForPlayer);
   elements.playerPosition.textContent = playerPosition >= 0 ? String(playerPosition + 1) : "-";
@@ -1521,10 +1675,19 @@ elements.leagueSelect.addEventListener("change", async (event) => {
 
 elements.playerSelect.addEventListener("change", (event) => {
   state.selectedPlayer = event.target.value;
+  state.selectedOpponent = "__current_season__";
   saveSelections();
   const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
   updateDashboard(league?.label || "");
 });
+
+if (elements.opponentSelect) {
+  elements.opponentSelect.addEventListener("change", (event) => {
+    state.selectedOpponent = event.target.value || "__current_season__";
+    saveSelections();
+    renderSelectedPlayerMatches(state.selectedPlayer || "");
+  });
+}
 
 elements.standingsBody.addEventListener("click", (event) => {
   const row = event.target.closest("tr[data-player]");
@@ -1534,6 +1697,7 @@ elements.standingsBody.addEventListener("click", (event) => {
   }
 
   state.selectedPlayer = nextPlayer;
+  state.selectedOpponent = "__current_season__";
   elements.playerSelect.value = nextPlayer;
   saveSelections();
   const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
