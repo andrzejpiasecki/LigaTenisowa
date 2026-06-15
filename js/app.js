@@ -8,6 +8,7 @@ const AUTO_REFRESH_THROTTLE_MS = 2500;
 const SEASON_START_MONTHS = [1, 4, 7, 10];
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const NEW_RESULTS_TTL_MS = 60 * 60 * 1000;
+const FORECAST_HISTORY_CONCURRENCY = 4;
 
 const state = {
   season: null,
@@ -23,6 +24,11 @@ const state = {
   playerIdByName: {},
   remainingHistoryByOpponent: {},
   playerMatchesHistoryByPlayerId: {},
+  forecastPointsByPlayer: {},
+  forecastCacheScopeKey: "",
+  forecastCacheMatchesKey: "",
+  forecastCacheRequestToken: 0,
+  headToHeadHistoryByPairKey: {},
   historyRequestToken: 0,
   playerMatchesRequestToken: 0,
   standingsSort: {
@@ -909,7 +915,13 @@ function getParticipants(matches) {
   );
 }
 
-function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, remainingOpponents) {
+function buildRemainingPredictionByOpponent(
+  matches,
+  standings,
+  selectedPlayer,
+  remainingOpponents,
+  historyByOpponent = state.remainingHistoryByOpponent,
+) {
   const result = {};
   if (!selectedPlayer || !remainingOpponents.length) {
     return result;
@@ -964,7 +976,7 @@ function buildRemainingPredictionByOpponent(matches, standings, selectedPlayer, 
         (match.winner === selectedPlayer && match.loser === opponent)
         || (match.winner === opponent && match.loser === selectedPlayer),
     );
-    const pairHistoricalMatches = state.remainingHistoryByOpponent[opponent]?.matches || [];
+    const pairHistoricalMatches = historyByOpponent[opponent]?.matches || [];
     const allPairMatchesBySignature = new Map();
     for (const match of [...pairCurrentSeasonMatches, ...pairHistoricalMatches]) {
       allPairMatchesBySignature.set(matchSignature(match), match);
@@ -1215,6 +1227,28 @@ function calculatePredictionTotals(playerSummary, remainingOpponents, remainingP
   };
 }
 
+function applyForecastPoints(standings) {
+  for (const entry of standings) {
+    const forecastPoints = state.forecastPointsByPlayer[entry.player];
+    if (Number.isFinite(forecastPoints)) {
+      entry.maxAvgPoints = forecastPoints;
+    }
+  }
+  return standings;
+}
+
+function getForecastMatchesKey(matches) {
+  return getMatchSignatures(matches).join("\n");
+}
+
+function resetForecastCache(scopeKey = "", matchesKey = "") {
+  state.forecastPointsByPlayer = {};
+  state.headToHeadHistoryByPairKey = {};
+  state.forecastCacheScopeKey = scopeKey;
+  state.forecastCacheMatchesKey = matchesKey;
+  state.forecastCacheRequestToken += 1;
+}
+
 function formatMatchesWord(count) {
   const mod10 = count % 10;
   const mod100 = count % 100;
@@ -1241,6 +1275,7 @@ function fillSelect(select, options, selectedValue, placeholder = "") {
 }
 
 function resetTablesForMissingSelection(message) {
+  resetForecastCache();
   elements.statusText.textContent = message;
   updateNewDataBadge();
   updateHeaderHeading("", "");
@@ -1385,6 +1420,149 @@ async function fetchHeadToHeadHistory(playerAId, playerBId) {
   return parseMatches(htmlToDocument(html));
 }
 
+function getHeadToHeadPairKey(playerAId, playerBId) {
+  return [playerAId, playerBId].sort().join("::");
+}
+
+async function fetchHeadToHeadHistoryCached(playerAId, playerBId) {
+  if (!playerAId || !playerBId) {
+    return [];
+  }
+
+  const pairKey = getHeadToHeadPairKey(playerAId, playerBId);
+  if (state.headToHeadHistoryByPairKey[pairKey]) {
+    return state.headToHeadHistoryByPairKey[pairKey];
+  }
+
+  const request = fetchHeadToHeadHistory(playerAId, playerBId);
+  state.headToHeadHistoryByPairKey[pairKey] = request;
+
+  try {
+    const matches = await request;
+    state.headToHeadHistoryByPairKey[pairKey] = matches;
+    return matches;
+  } catch (error) {
+    delete state.headToHeadHistoryByPairKey[pairKey];
+    throw error;
+  }
+}
+
+async function runWithConcurrency(items, limit, worker) {
+  let index = 0;
+  const workerCount = Math.min(limit, items.length);
+  const runners = Array.from({ length: workerCount }, async () => {
+    while (index < items.length) {
+      const item = items[index];
+      index += 1;
+      await worker(item);
+    }
+  });
+
+  await Promise.all(runners);
+}
+
+function getPairCurrentMatchSignatures(matches, playerA, playerB) {
+  return new Set(
+    matches
+      .filter((match) =>
+        (match.winner === playerA && match.loser === playerB)
+        || (match.winner === playerB && match.loser === playerA))
+      .map(matchSignature),
+  );
+}
+
+async function loadHistoricalOnlyMatchesForPair(matches, player, opponent) {
+  if (state.shareMode) {
+    return [];
+  }
+
+  const playerId = getPlayerIdByName(player);
+  const opponentId = getPlayerIdByName(opponent);
+  const allMatches = await fetchHeadToHeadHistoryCached(playerId, opponentId);
+  const currentSignatures = getPairCurrentMatchSignatures(matches, player, opponent);
+  return allMatches.filter((match) => !currentSignatures.has(matchSignature(match)));
+}
+
+async function ensureLeagueForecastCache(scopeKey, matches) {
+  const matchesKey = getForecastMatchesKey(matches);
+  const participants = getParticipants(matches);
+  const hasCompleteCache = state.forecastCacheScopeKey === scopeKey
+    && state.forecastCacheMatchesKey === matchesKey
+    && participants.every((player) => Number.isFinite(state.forecastPointsByPlayer[player]));
+
+  if (hasCompleteCache) {
+    return;
+  }
+
+  resetForecastCache(scopeKey, matchesKey);
+  const token = state.forecastCacheRequestToken;
+  const standings = buildStandings(matches);
+  const standingsByPlayer = new Map(standings.map((entry) => [entry.player, entry]));
+  const historiesByPlayer = Object.fromEntries(participants.map((player) => [player, {}]));
+  const forecastInputs = participants.map((player) => {
+    const playedOpponents = new Set(
+      matches
+        .filter((match) => match.winner === player || match.loser === player)
+        .map((match) => (match.winner === player ? match.loser : match.winner)),
+    );
+    const remainingOpponents = participants
+      .filter((name) => name !== player)
+      .filter((name) => !playedOpponents.has(name));
+
+    return { player, remainingOpponents };
+  });
+  const historyTasks = forecastInputs.flatMap(({ player, remainingOpponents }) =>
+    remainingOpponents.map((opponent) => ({ player, opponent })),
+  );
+
+  await runWithConcurrency(historyTasks, FORECAST_HISTORY_CONCURRENCY, async ({ player, opponent }) => {
+    if (token !== state.forecastCacheRequestToken) {
+      return;
+    }
+
+    try {
+      historiesByPlayer[player][opponent] = {
+        loading: false,
+        error: false,
+        matches: await loadHistoricalOnlyMatchesForPair(matches, player, opponent),
+      };
+    } catch {
+      historiesByPlayer[player][opponent] = {
+        loading: false,
+        error: true,
+        matches: [],
+      };
+    }
+  });
+
+  if (token !== state.forecastCacheRequestToken) {
+    return;
+  }
+
+  const forecastPointsByPlayer = {};
+  for (const { player, remainingOpponents } of forecastInputs) {
+    const playerSummary = standingsByPlayer.get(player);
+    if (!playerSummary) {
+      continue;
+    }
+
+    const predictionByOpponent = buildRemainingPredictionByOpponent(
+      matches,
+      standings,
+      player,
+      remainingOpponents,
+      historiesByPlayer[player],
+    );
+    forecastPointsByPlayer[player] = calculatePredictionTotals(
+      playerSummary,
+      remainingOpponents,
+      predictionByOpponent,
+    ).predictedPoints;
+  }
+
+  state.forecastPointsByPlayer = forecastPointsByPlayer;
+}
+
 async function loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel) {
   if (state.shareMode) {
     return;
@@ -1396,7 +1574,7 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents, league
     nextHistory[opponent] = { loading: true, matches: [] };
   }
   state.remainingHistoryByOpponent = nextHistory;
-  const standingsSnapshot = sortStandings(buildStandings(state.matches));
+  const standingsSnapshot = sortStandings(applyForecastPoints(buildStandings(state.matches)));
   const remainingPredictionByOpponent = buildRemainingPredictionByOpponent(
     state.matches,
     standingsSnapshot,
@@ -1422,7 +1600,7 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents, league
     remainingOpponents.map(async (opponent) => {
       const opponentId = getPlayerIdByName(opponent);
       try {
-        const allMatches = await fetchHeadToHeadHistory(selectedPlayerId, opponentId);
+        const allMatches = await fetchHeadToHeadHistoryCached(selectedPlayerId, opponentId);
         const currentSigs = currentPairMatches.get(opponent) || new Set();
         const historicalOnly = allMatches.filter((match) => !currentSigs.has(matchSignature(match)));
 
@@ -1450,7 +1628,7 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents, league
   );
 
   if (token === state.historyRequestToken) {
-    let latestStandingsSnapshot = sortStandings(buildStandings(state.matches));
+    let latestStandingsSnapshot = sortStandings(applyForecastPoints(buildStandings(state.matches)));
     const latestRemainingPredictionByOpponent = buildRemainingPredictionByOpponent(
       state.matches,
       latestStandingsSnapshot,
@@ -1458,15 +1636,6 @@ async function loadRemainingHistories(selectedPlayer, remainingOpponents, league
       remainingOpponents,
     );
     const latestPlayerSummary = latestStandingsSnapshot.find((entry) => entry.player === selectedPlayer);
-    if (latestPlayerSummary) {
-      latestPlayerSummary.maxAvgPoints = calculatePredictionTotals(
-        latestPlayerSummary,
-        remainingOpponents,
-        latestRemainingPredictionByOpponent,
-      ).predictedPoints;
-      latestStandingsSnapshot = sortStandings(latestStandingsSnapshot);
-      renderStandings(latestStandingsSnapshot, selectedPlayer, buildPositionChangeByPlayer(state.matches));
-    }
     renderRemaining(remainingOpponents, selectedPlayer, latestRemainingPredictionByOpponent, latestPlayerSummary);
   }
 }
@@ -1542,6 +1711,8 @@ async function refreshLeagueData(preferredPlayer = "", options = {}) {
       state.selectedPlayer,
     );
 
+    setLoadingState(true, "Liczenie prognoz...");
+    await ensureLeagueForecastCache(scopeKey, state.matches);
     updateDashboard(selectedLeague?.label || "");
     saveSelections();
   } finally {
@@ -1578,7 +1749,7 @@ function updateDashboard(leagueLabel, options = {}) {
   updateNewDataBadge();
 
   let standings = sortStandings(
-    buildStandings(matches),
+    applyForecastPoints(buildStandings(matches)),
   );
   const positionChangeByPlayer = buildPositionChangeByPlayer(matches);
 
@@ -1601,6 +1772,9 @@ function updateDashboard(leagueLabel, options = {}) {
     state.remainingHistoryByOpponent = {};
     elements.remainingMatchesList.innerHTML = '<p class="hint">Wybierz zawodnika, aby zobaczyć pozostałe mecze.</p>';
   } else {
+    if (!skipHistoryLoad) {
+      state.remainingHistoryByOpponent = {};
+    }
     const playerSummaryForRemaining = standings.find((entry) => entry.player === selectedPlayer) || null;
     const remainingPredictionByOpponent = buildRemainingPredictionByOpponent(
       matches,
@@ -1608,18 +1782,6 @@ function updateDashboard(leagueLabel, options = {}) {
       selectedPlayer,
       remainingOpponents,
     );
-    if (!skipHistoryLoad) {
-      state.remainingHistoryByOpponent = {};
-    }
-    if (playerSummaryForRemaining) {
-      const predictionTotals = calculatePredictionTotals(
-        playerSummaryForRemaining,
-        remainingOpponents,
-        remainingPredictionByOpponent,
-      );
-      playerSummaryForRemaining.maxAvgPoints = predictionTotals.predictedPoints;
-      standings = sortStandings(standings);
-    }
     renderRemaining(remainingOpponents, selectedPlayer, remainingPredictionByOpponent, playerSummaryForRemaining);
     if (!skipHistoryLoad) {
       loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel);
