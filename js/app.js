@@ -4,6 +4,7 @@ const SHARE_DATA = typeof window !== "undefined" ? window.__SHARE_DATA || null :
 const STORAGE_KEY = "liga-dashboard-selections";
 const MATCH_SNAPSHOTS_STORAGE_KEY = "liga-dashboard-match-snapshots";
 const NEW_RESULTS_STORAGE_KEY = "liga-dashboard-new-results";
+const FORECAST_CACHE_STORAGE_KEY = "liga-dashboard-forecast-cache";
 const AUTO_REFRESH_THROTTLE_MS = 2500;
 const SEASON_START_MONTHS = [1, 4, 7, 10];
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -40,6 +41,7 @@ const state = {
   lastAutoRefreshAt: 0,
   matchSnapshotsByScope: loadJsonStorage(MATCH_SNAPSHOTS_STORAGE_KEY),
   newResultsByScope: loadJsonStorage(NEW_RESULTS_STORAGE_KEY),
+  forecastCacheByScope: loadJsonStorage(FORECAST_CACHE_STORAGE_KEY),
   newDataBadgeTimeoutId: null,
 };
 
@@ -1241,6 +1243,50 @@ function getForecastMatchesKey(matches) {
   return getMatchSignatures(matches).join("\n");
 }
 
+function isCompleteForecastCache(cache, matchesKey, participants) {
+  return cache
+    && cache.matchesKey === matchesKey
+    && cache.forecastPointsByPlayer
+    && typeof cache.forecastPointsByPlayer === "object"
+    && participants.every((player) => Number.isFinite(cache.forecastPointsByPlayer[player]));
+}
+
+function restoreForecastCache(scopeKey, matchesKey, participants) {
+  const cached = state.forecastCacheByScope[scopeKey];
+  if (!isCompleteForecastCache(cached, matchesKey, participants)) {
+    return false;
+  }
+
+  state.forecastPointsByPlayer = { ...cached.forecastPointsByPlayer };
+  state.forecastCacheScopeKey = scopeKey;
+  state.forecastCacheMatchesKey = matchesKey;
+  return true;
+}
+
+function hasInMemoryForecastCache(scopeKey, matchesKey, participants) {
+  return state.forecastCacheScopeKey === scopeKey
+    && state.forecastCacheMatchesKey === matchesKey
+    && participants.every((player) => Number.isFinite(state.forecastPointsByPlayer[player]));
+}
+
+function ensureStoredForecastCacheLoaded(scopeKey, matchesKey, participants) {
+  return hasInMemoryForecastCache(scopeKey, matchesKey, participants)
+    || restoreForecastCache(scopeKey, matchesKey, participants);
+}
+
+function persistForecastCache(scopeKey, matchesKey, forecastPointsByPlayer) {
+  if (!scopeKey || !matchesKey) {
+    return;
+  }
+
+  state.forecastCacheByScope[scopeKey] = {
+    matchesKey,
+    forecastPointsByPlayer,
+    savedAt: Date.now(),
+  };
+  saveJsonStorage(FORECAST_CACHE_STORAGE_KEY, state.forecastCacheByScope);
+}
+
 function resetForecastCache(scopeKey = "", matchesKey = "") {
   state.forecastPointsByPlayer = {};
   state.headToHeadHistoryByPairKey = {};
@@ -1483,14 +1529,13 @@ async function loadHistoricalOnlyMatchesForPair(matches, player, opponent) {
   return allMatches.filter((match) => !currentSignatures.has(matchSignature(match)));
 }
 
-async function ensureLeagueForecastCache(scopeKey, matches) {
-  const matchesKey = getForecastMatchesKey(matches);
-  const participants = getParticipants(matches);
-  const hasCompleteCache = state.forecastCacheScopeKey === scopeKey
-    && state.forecastCacheMatchesKey === matchesKey
-    && participants.every((player) => Number.isFinite(state.forecastPointsByPlayer[player]));
-
-  if (hasCompleteCache) {
+async function ensureLeagueForecastCache(
+  scopeKey,
+  matches,
+  matchesKey = getForecastMatchesKey(matches),
+  participants = getParticipants(matches),
+) {
+  if (ensureStoredForecastCacheLoaded(scopeKey, matchesKey, participants)) {
     return;
   }
 
@@ -1561,6 +1606,7 @@ async function ensureLeagueForecastCache(scopeKey, matches) {
   }
 
   state.forecastPointsByPlayer = forecastPointsByPlayer;
+  persistForecastCache(scopeKey, matchesKey, forecastPointsByPlayer);
 }
 
 async function loadRemainingHistories(selectedPlayer, remainingOpponents, leagueLabel) {
@@ -1711,8 +1757,12 @@ async function refreshLeagueData(preferredPlayer = "", options = {}) {
       state.selectedPlayer,
     );
 
-    setLoadingState(true, "Liczenie prognoz...");
-    await ensureLeagueForecastCache(scopeKey, state.matches);
+    const forecastMatchesKey = getForecastMatchesKey(state.matches);
+    const hasForecastCache = ensureStoredForecastCacheLoaded(scopeKey, forecastMatchesKey, participants);
+    if (!hasForecastCache) {
+      setLoadingState(true, "Liczenie prognoz...");
+      await ensureLeagueForecastCache(scopeKey, state.matches, forecastMatchesKey, participants);
+    }
     updateDashboard(selectedLeague?.label || "");
     saveSelections();
   } finally {
