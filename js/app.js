@@ -13,15 +13,20 @@ const FORECAST_HISTORY_CONCURRENCY = 4;
 
 const state = {
   season: null,
+  latestSeason: null,
   seasons: [],
   leagues: [],
+  allLeagues: [],
+  allPlayers: [],
   selectedLeagueId: "",
   selectedPlayer: "",
   selectedOpponent: "__current_season__",
   matches: [],
+  matchesScopeKey: "",
   formDefaults: null,
   shareMode: Boolean(SHARE_DATA),
   leagueHtmlById: SHARE_DATA?.leagueHtmlById || {},
+  leagueMatchesByScope: {},
   playerIdByName: {},
   remainingHistoryByOpponent: {},
   playerMatchesHistoryByPlayerId: {},
@@ -46,6 +51,7 @@ const state = {
 };
 
 const elements = {
+  globalPlayerSelect: document.getElementById("globalPlayerSelect"),
   seasonSelect: document.getElementById("seasonSelect"),
   leagueSelect: document.getElementById("leagueSelect"),
   playerSelect: document.getElementById("playerSelect"),
@@ -171,6 +177,35 @@ function getLeagueScopeKey(seasonId = state.season?.value, leagueId = state.sele
   }
 
   return `${seasonId}::${leagueId}`;
+}
+
+function isLatestSeasonSelected() {
+  return Boolean(state.season?.value && state.latestSeason?.value && state.season.value === state.latestSeason.value);
+}
+
+function normalizeLookup(text) {
+  return normalize(text).toUpperCase();
+}
+
+function syncLeagueSelect() {
+  fillSelect(elements.leagueSelect, state.leagues, state.selectedLeagueId);
+}
+
+function ensureLeagueOptionVisible(league) {
+  if (!league?.value || state.leagues.some((item) => item.value === league.value)) {
+    return;
+  }
+
+  state.leagues = [...state.leagues, { ...league }].sort((a, b) => a.label.localeCompare(b.label, "pl"));
+}
+
+function syncGlobalPlayerSelect(playerName = state.selectedPlayer) {
+  if (!elements.globalPlayerSelect) {
+    return;
+  }
+
+  const player = state.allPlayers.find((item) => normalizeLookup(item.label) === normalizeLookup(playerName || ""));
+  elements.globalPlayerSelect.value = player ? player.label : "";
 }
 
 function persistMatchSnapshots() {
@@ -832,6 +867,10 @@ function defaultStandingsComparator(a, b) {
 function compareByKey(a, b, key, direction) {
   const dir = direction === "asc" ? 1 : -1;
 
+  if (key === "maxAvgPoints" && !isLatestSeasonSelected()) {
+    return 0;
+  }
+
   if (key === "player") {
     return dir * a.player.localeCompare(b.player, "pl");
   }
@@ -1032,12 +1071,13 @@ function renderStandings(standings, selectedPlayer, positionChangeByPlayer = {})
         : positionChange < 0
           ? `<span class="position-change down" aria-label="Pozycja pogorszyła się o ${positionShift} ${getPlaceWord(positionShift)} względem poprzedniej kolejki">-${positionShift}</span>`
           : "";
+      const forecastValue = isLatestSeasonSelected() ? entry.maxAvgPoints : "-";
       return `
         <tr class="${selectedClass}" data-player="${escapeHtml(entry.player)}">
           <td><span class="position-cell"><span>${index + 1}</span>${positionTrend}</span></td>
           <td>${escapeHtml(titleCase(entry.player))}</td>
           <td><strong>${entry.points}</strong></td>
-          <td><strong>${entry.maxAvgPoints}</strong></td>
+          <td><strong>${forecastValue}</strong></td>
           <td>${entry.wins}</td>
           <td>${entry.losses}</td>
         </tr>
@@ -1085,7 +1125,12 @@ function updateOpponentSelect(matches, selectedPlayer) {
   const opponents = [...new Set(matches.map((match) => getMatchOpponent(match, selectedPlayer)).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, "pl"));
 
-  if (state.selectedOpponent && state.selectedOpponent !== "__current_season__" && !opponents.includes(state.selectedOpponent)) {
+  if (
+    state.selectedOpponent
+    && state.selectedOpponent !== "__current_season__"
+    && state.selectedOpponent !== "__all_matches__"
+    && !opponents.includes(state.selectedOpponent)
+  ) {
     state.selectedOpponent = "__current_season__";
   }
 
@@ -1093,6 +1138,7 @@ function updateOpponentSelect(matches, selectedPlayer) {
     elements.opponentSelect,
     [
       { value: "__current_season__", label: "Aktualny sezon" },
+      { value: "__all_matches__", label: "Wszystkie mecze" },
       ...opponents.map((opponent) => ({ value: opponent, label: titleCase(opponent) })),
     ],
     state.selectedOpponent || "__current_season__",
@@ -1100,7 +1146,11 @@ function updateOpponentSelect(matches, selectedPlayer) {
 }
 
 function filterMatchesByOpponent(matches, selectedPlayer) {
-  if (!state.selectedOpponent || state.selectedOpponent === "__current_season__") {
+  if (
+    !state.selectedOpponent
+    || state.selectedOpponent === "__current_season__"
+    || state.selectedOpponent === "__all_matches__"
+  ) {
     return matches;
   }
   return matches.filter((match) => getMatchOpponent(match, selectedPlayer) === state.selectedOpponent);
@@ -1322,6 +1372,7 @@ function fillSelect(select, options, selectedValue, placeholder = "") {
 
 function resetTablesForMissingSelection(message) {
   resetForecastCache();
+  state.matchesScopeKey = "";
   elements.statusText.textContent = message;
   updateNewDataBadge();
   updateHeaderHeading("", "");
@@ -1342,6 +1393,7 @@ async function getInitialContext() {
       latestSeason: SHARE_DATA.latestSeason,
       allSeasons: [SHARE_DATA.latestSeason],
       allLeagues: SHARE_DATA.leagues,
+      allPlayers: [],
       playerIdByName: {},
     };
   }
@@ -1370,6 +1422,7 @@ async function getInitialContext() {
     latestSeason: currentSeason,
     allSeasons: seasons,
     allLeagues: leagues,
+    allPlayers: players,
     playerIdByName: buildPlayerIdMap(players),
   };
 }
@@ -1385,6 +1438,25 @@ async function fetchMatchesForLeague(seasonId, leagueId) {
   const html = await postForm(API_MATCHES_URL, payload);
 
   return parseMatches(htmlToDocument(html));
+}
+
+async function fetchMatchesForLeagueCached(seasonId, leagueId) {
+  const scopeKey = getLeagueScopeKey(seasonId, leagueId);
+  if (!scopeKey) {
+    return [];
+  }
+
+  if (state.matchesScopeKey === scopeKey && state.matches.length) {
+    return state.matches;
+  }
+
+  if (state.leagueMatchesByScope[scopeKey]) {
+    return state.leagueMatchesByScope[scopeKey];
+  }
+
+  const matches = await fetchMatchesForLeague(seasonId, leagueId);
+  state.leagueMatchesByScope[scopeKey] = matches;
+  return matches;
 }
 
 async function fetchPlayerMatchesHistory(playerName) {
@@ -1406,6 +1478,52 @@ async function fetchPlayerMatchesHistory(playerName) {
   const matches = parseMatches(htmlToDocument(html));
   state.playerMatchesHistoryByPlayerId[playerId] = matches;
   return matches;
+}
+
+function isMatchParticipant(match, playerName) {
+  return match.winner === playerName || match.loser === playerName;
+}
+
+function sameMatch(a, b) {
+  return matchSignature(a) === matchSignature(b)
+    && a.winner === b.winner
+    && a.loser === b.loser;
+}
+
+function getCandidateLeaguesForMatch(match) {
+  const leagueNameKey = normalizeLookup(match.leagueName || "");
+  const exactMatches = state.allLeagues.filter((league) => normalizeLookup(league.label) === leagueNameKey);
+  return exactMatches.length ? exactMatches : state.allLeagues;
+}
+
+async function findLatestPlayerLeague(playerName) {
+  const history = await fetchPlayerMatchesHistory(playerName);
+  const playerMatches = history
+    .filter((match) => isMatchParticipant(match, playerName))
+    .sort((a, b) => b.date.localeCompare(a.date));
+
+  for (const playerMatch of playerMatches) {
+    const candidateLeagues = getCandidateLeaguesForMatch(playerMatch);
+    for (const season of state.seasons) {
+      for (const league of candidateLeagues) {
+        const leagueMatches = await fetchMatchesForLeagueCached(season.value, league.value);
+        if (leagueMatches.some((match) => sameMatch(match, playerMatch))) {
+          return { season, league, playerName };
+        }
+      }
+    }
+  }
+
+  for (const season of state.seasons) {
+    for (const league of state.allLeagues) {
+      const leagueMatches = await fetchMatchesForLeagueCached(season.value, league.value);
+      if (leagueMatches.some((match) => isMatchParticipant(match, playerName))) {
+        return { season, league, playerName };
+      }
+    }
+  }
+
+  return null;
 }
 
 async function renderSelectedPlayerMatches(selectedPlayer) {
@@ -1696,26 +1814,39 @@ async function initialize() {
     ? true
     : Boolean(stored.controlsCollapsed);
   setControlsCollapsed(initialControlsCollapsed);
+  state.latestSeason = context.latestSeason || null;
   state.seasons = context.allSeasons;
+  state.allLeagues = (context.allLeagues || []).map((league) => ({ ...league }));
+  state.allPlayers = (context.allPlayers || []).map((player) => ({ ...player }));
   state.selectedOpponent = stored.opponent || "__current_season__";
 
   const selectedSeason = state.seasons.find((season) => season.value === stored.seasonId) || state.seasons[0] || null;
   state.season = selectedSeason;
 
   fillSelect(elements.seasonSelect, state.seasons, selectedSeason?.value || "");
+  fillSelect(
+    elements.globalPlayerSelect,
+    state.allPlayers.map((player) => ({ value: player.label, label: titleCase(player.label) })),
+    "",
+    "Wybierz gracza...",
+  );
 
   const primaryLeagueNames = new Set(["Extraliga", "1 Liga", "2 Liga", "3 Liga", "4 Liga"]);
-  const primaryLeagues = context.allLeagues.filter((league) => primaryLeagueNames.has(league.label));
-  state.leagues = (primaryLeagues.length ? primaryLeagues : context.allLeagues).map((league) => ({ ...league }));
+  const primaryLeagues = state.allLeagues.filter((league) => primaryLeagueNames.has(league.label));
+  state.leagues = (primaryLeagues.length ? primaryLeagues : state.allLeagues).map((league) => ({ ...league }));
 
   if (!state.leagues.length) {
     throw new Error("Brak lig z meczami w najnowszym sezonie.");
   }
 
+  const storedLeague = state.allLeagues.find((league) => league.value === stored.leagueId);
+  if (storedLeague) {
+    ensureLeagueOptionVisible(storedLeague);
+  }
   state.selectedLeagueId = state.leagues.some((league) => league.value === stored.leagueId)
     ? stored.leagueId
     : (state.leagues[0]?.value || "");
-  fillSelect(elements.leagueSelect, state.leagues, state.selectedLeagueId);
+  syncLeagueSelect();
 
   await refreshLeagueData(stored.player || "");
 }
@@ -1744,7 +1875,8 @@ async function refreshLeagueData(preferredPlayer = "", options = {}) {
     const selectedLeague = state.leagues.find((league) => league.value === state.selectedLeagueId);
     const scopeKey = getLeagueScopeKey(state.season?.value, state.selectedLeagueId);
 
-    state.matches = await fetchMatchesForLeague(state.season.value, state.selectedLeagueId);
+    state.matches = await fetchMatchesForLeagueCached(state.season.value, state.selectedLeagueId);
+    state.matchesScopeKey = scopeKey;
     syncNewResultsMarker(scopeKey, state.matches);
     const participants = getParticipants(state.matches);
     state.selectedPlayer = preferredPlayer && participants.includes(preferredPlayer)
@@ -1757,13 +1889,18 @@ async function refreshLeagueData(preferredPlayer = "", options = {}) {
       state.selectedPlayer,
     );
 
-    const forecastMatchesKey = getForecastMatchesKey(state.matches);
-    const hasForecastCache = ensureStoredForecastCacheLoaded(scopeKey, forecastMatchesKey, participants);
-    if (!hasForecastCache) {
-      setLoadingState(true, "Liczenie prognoz...");
-      await ensureLeagueForecastCache(scopeKey, state.matches, forecastMatchesKey, participants);
+    if (isLatestSeasonSelected()) {
+      const forecastMatchesKey = getForecastMatchesKey(state.matches);
+      const hasForecastCache = ensureStoredForecastCacheLoaded(scopeKey, forecastMatchesKey, participants);
+      if (!hasForecastCache) {
+        setLoadingState(true, "Liczenie prognoz...");
+        await ensureLeagueForecastCache(scopeKey, state.matches, forecastMatchesKey, participants);
+      }
+    } else {
+      resetForecastCache(scopeKey, getForecastMatchesKey(state.matches));
     }
     updateDashboard(selectedLeague?.label || "");
+    syncGlobalPlayerSelect();
     saveSelections();
   } finally {
     setLoadingState(false);
@@ -1789,6 +1926,35 @@ function triggerAutoRefresh() {
 
   state.lastAutoRefreshAt = now;
   refreshLeagueData(state.selectedPlayer, { statusText: "Odświeżanie danych..." });
+}
+
+async function selectGlobalPlayer(playerName) {
+  if (!playerName) {
+    return;
+  }
+
+  setLoadingState(true, "Szukam najnowszej ligi gracza...");
+  try {
+    const location = await findLatestPlayerLeague(playerName);
+    if (!location) {
+      elements.statusText.textContent = `Nie znaleziono ligi dla gracza ${titleCase(playerName)}.`;
+      return;
+    }
+
+    state.season = location.season;
+    state.selectedLeagueId = location.league.value;
+    state.selectedOpponent = "__current_season__";
+    ensureLeagueOptionVisible(location.league);
+    fillSelect(elements.seasonSelect, state.seasons, state.season?.value || "");
+    syncLeagueSelect();
+    saveSelections();
+
+    await refreshLeagueData(location.playerName, {
+      statusText: `Ładowanie ${titleCase(location.playerName)}...`,
+    });
+  } finally {
+    setLoadingState(false);
+  }
 }
 
 function updateDashboard(leagueLabel, options = {}) {
@@ -1821,6 +1987,9 @@ function updateDashboard(leagueLabel, options = {}) {
   if (!selectedPlayer) {
     state.remainingHistoryByOpponent = {};
     elements.remainingMatchesList.innerHTML = '<p class="hint">Wybierz zawodnika, aby zobaczyć pozostałe mecze.</p>';
+  } else if (!isLatestSeasonSelected()) {
+    state.remainingHistoryByOpponent = {};
+    elements.remainingMatchesList.innerHTML = '<p class="hint">Prognozy są liczone tylko dla najnowszego sezonu.</p>';
   } else {
     if (!skipHistoryLoad) {
       state.remainingHistoryByOpponent = {};
@@ -1870,6 +2039,12 @@ for (const header of elements.standingsHeaders) {
   });
 }
 
+if (elements.globalPlayerSelect) {
+  elements.globalPlayerSelect.addEventListener("change", async (event) => {
+    await selectGlobalPlayer(event.target.value);
+  });
+}
+
 elements.seasonSelect.addEventListener("change", async (event) => {
   const nextSeason = state.seasons.find((season) => season.value === event.target.value);
   state.season = nextSeason || null;
@@ -1888,6 +2063,7 @@ elements.leagueSelect.addEventListener("change", async (event) => {
 elements.playerSelect.addEventListener("change", (event) => {
   state.selectedPlayer = event.target.value;
   state.selectedOpponent = "__current_season__";
+  syncGlobalPlayerSelect();
   saveSelections();
   const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
   updateDashboard(league?.label || "");
@@ -1911,6 +2087,7 @@ elements.standingsBody.addEventListener("click", (event) => {
   state.selectedPlayer = nextPlayer;
   state.selectedOpponent = "__current_season__";
   elements.playerSelect.value = nextPlayer;
+  syncGlobalPlayerSelect();
   saveSelections();
   const league = state.leagues.find((item) => item.value === state.selectedLeagueId);
   updateDashboard(league?.label || "");
