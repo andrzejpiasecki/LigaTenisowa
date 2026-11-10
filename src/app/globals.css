@@ -241,6 +241,7 @@ textarea {
 
 .app-content {
   display: grid;
+  min-width: 0;
   gap: 1rem;
 }
 
@@ -259,6 +260,7 @@ textarea {
 
 .scheduler-layout {
   display: grid;
+  min-width: 0;
   gap: 1rem;
 }
 
@@ -269,6 +271,7 @@ textarea {
 }
 
 .panel-card {
+  min-width: 0;
   padding: 1rem 1.1rem;
 }
 
@@ -375,6 +378,140 @@ textarea {
 
 .scheduler-table-wrap {
   overflow-x: auto;
+}
+
+.match-matrix {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  table-layout: fixed;
+  font-size: 0.78rem;
+}
+
+.match-matrix--dense {
+  font-size: 0.68rem;
+}
+
+.match-matrix th,
+.match-matrix td {
+  min-width: 0;
+  height: 44px;
+  padding: 0;
+  border-right: 1px solid #dce6d7;
+  border-bottom: 1px solid #dce6d7;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.match-matrix thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 0.25rem;
+  background: #eaf2e7;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  line-height: 1.1;
+}
+
+.match-matrix--dense thead th:not(.match-matrix__corner) {
+  height: 120px;
+  vertical-align: bottom;
+}
+
+.match-matrix--dense .match-matrix__column-name {
+  display: block;
+  max-height: 112px;
+  margin: auto;
+  overflow: hidden;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.match-matrix tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 128px;
+  max-width: 128px;
+  padding: 0.3rem 0.4rem;
+  background: #f4f8f1;
+  text-align: left;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+}
+
+.match-matrix .match-matrix__corner {
+  left: 0;
+  z-index: 3;
+  min-width: 128px;
+  width: 128px;
+  max-width: 128px;
+  text-align: left;
+}
+
+.match-matrix__self {
+  background: repeating-linear-gradient(135deg, #f0f1ef, #f0f1ef 8px, #e8eae6 8px, #e8eae6 16px);
+  color: #879086;
+}
+
+.match-matrix__cell--played {
+  background: #e7f4eb;
+  color: #1d6838;
+}
+
+.match-matrix__cell--five-points {
+  background: #e85a52;
+  color: #fff;
+}
+
+.match-matrix__cell--scheduled {
+  background: #fff3db;
+  color: #805400;
+}
+
+.match-matrix__cell--open {
+  background: #fff;
+  color: var(--shell-brand-dark);
+}
+
+.match-matrix__cell--inactive {
+  background: #f3f4f2;
+  color: #68726a;
+}
+
+.match-matrix__label,
+.match-matrix__button {
+  display: flex;
+  width: 100%;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.2rem;
+  font: inherit;
+  color: inherit;
+}
+
+.match-matrix__button {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.match-matrix__button:hover,
+.match-matrix__button:focus-visible {
+  outline: 2px solid var(--shell-brand-dark);
+  outline-offset: -2px;
+  background: rgba(28, 87, 41, 0.08);
+}
+
+.match-matrix__button small {
+  font-size: 0.72rem;
+  line-height: 1.2;
 }
 
 .player-detail-link {
@@ -873,3 +1010,273 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+/* Player portal and outbound communication */
+.player-sections, .player-form { display: grid; gap: 1rem; }
+.player-form label { display: grid; gap: .4rem; }
+.player-form input, .player-form textarea, .player-weekly-row input, .player-weekly-row select {
+  width: 100%; min-height: 44px; padding: .65rem; border: 1px solid #cbd5e1; border-radius: 8px; font: inherit;
+}
+.player-form textarea { min-height: 100px; resize: vertical; }
+.player-match { padding: 1rem 0; border-bottom: 1px solid #e2e8f0; }
+.player-match--highlight { padding: 1rem; outline: 2px solid #16a34a; border-radius: 8px; }
+.player-weekly-row { display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: .5rem; margin-bottom: .7rem; }
+.sms-preview { overflow-wrap: anywhere; white-space: pre-wrap; }
+@media (max-width: 600px) { .player-weekly-row { grid-template-columns: 1fr 1fr; } }
+
+.booking-grid {
+  align-items: start;
+}
+
+.booking-panel__header {
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.booking-panel__date {
+  margin-bottom: 0.9rem;
+}
+
+.booking-grid .court-occupancy__corner,
+.booking-grid .court-occupancy__court {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: #f1f5ed;
+}
+
+.scheduler-form .court-admin__active {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.scheduler-form .court-admin__active input {
+  width: auto;
+}
+
+.booking-grid button.court-slot {
+  min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.booking-grid button.court-slot--free-selected {
+  background: #173d22;
+  color: #fff;
+}
+
+.booking-grid button.court-slot--selected {
+  box-shadow: inset 0 0 0 2px #173d22;
+}
+
+.booking-panel__unassigned {
+  margin-bottom: 0.75rem;
+}
+
+.league-matches-pagination,
+.league-matches-pagination .table-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.league-matches-pagination {
+  justify-content: space-between;
+  margin-top: 0.9rem;
+  color: var(--shell-muted);
+  font-size: 0.9rem;
+}
+
+.match-sms-dialog {
+  box-sizing: border-box;
+  width: min(36rem, calc(100vw - 2rem));
+  max-height: calc(100dvh - 2rem);
+  padding: 1.3rem;
+  border: 1px solid var(--shell-line);
+  border-radius: 1rem;
+  color: var(--shell-text);
+  background: white;
+}
+
+.match-sms-dialog::backdrop { background: rgb(20 40 29 / 55%); }
+.match-sms-dialog h2 { margin-top: 0; }
+.match-sms-dialog .form-actions { margin-top: 1rem; }
+.match-sms-preview { padding: .65rem; background: #f2f6ef; border-radius: .5rem; overflow-wrap: anywhere; }
+.match-sms-recipients { padding-left: 1.2rem; }
+.match-sms-recipients li { margin-bottom: .55rem; }
+.match-sms-recipients li > span, .match-sms-recipient { display: block; }
+.match-sms-recipient { margin-top: .2rem; font-size: .85rem; overflow-wrap: anywhere; }
+
+.day-plan-actions { display: flex; flex-wrap: wrap; align-items: end; gap: .7rem; margin-bottom: .8rem; }
+.day-plan-actions .scheduler-inline-filter { margin: 0; }
+.day-plan-list { margin-top: 1.2rem; }
+.day-plan-list h3 { margin-bottom: .4rem; }
+.day-plan-replacement { padding: .7rem; margin-top: .65rem; background: #f2f6ef; border-radius: .5rem; }
+
+.app-shell:has(> .app-content > .match-scheduler) {
+  --shell-line: #dce3df;
+  --shell-muted: #52605a;
+  --shell-text: #1c2822;
+  gap: .75rem;
+  background: #f5f7f6;
+  font: .8125rem/1.4 system-ui, sans-serif;
+  color: var(--shell-text);
+}
+
+.app-shell:has(> .app-content > .match-scheduler) > .app-header,
+.match-scheduler .panel-card {
+  padding: .75rem 1rem;
+  border-radius: .625rem;
+  background: #fff;
+  box-shadow: none;
+}
+
+.match-scheduler,
+.match-scheduler .scheduler-main-grid {
+  gap: .75rem;
+}
+
+.match-scheduler .panel-card__header {
+  align-items: center;
+  flex-wrap: wrap;
+  gap: .5rem 1rem;
+  margin-bottom: .65rem;
+}
+
+.match-scheduler .panel-card__header h2 { font-size: 1rem; }
+.match-scheduler .panel-card__header p { margin: .125rem 0 0; }
+.match-scheduler .day-plan[data-open="false"] .panel-card__header { margin-bottom: 0; }
+
+.match-scheduler :is(.button-primary, .button-secondary, .button-danger, .form-actions button) {
+  min-height: 2.125rem;
+  padding: .375rem .7rem;
+  border-radius: .375rem;
+  box-shadow: none;
+  font: inherit;
+  font-weight: 600;
+  letter-spacing: normal;
+}
+
+.match-scheduler :is(.button-primary, .form-actions button:not(.button-secondary, .button-danger)) {
+  background: #256044;
+  border-color: #256044;
+}
+
+.match-scheduler .button-secondary { background: #fff; color: var(--shell-text); border-color: var(--shell-line); }
+.match-scheduler .button-danger { background: #fff5f4; color: #9b302c; border-color: #edcfca; }
+.match-scheduler :is(.button-primary, .button-secondary, .button-danger, .form-actions button):hover {
+  transform: none;
+  box-shadow: none;
+  filter: brightness(.96);
+}
+
+.match-scheduler .scheduler-form { gap: .6rem; }
+.match-scheduler :is(.scheduler-form label, .scheduler-inline-filter) { gap: .2rem; font-size: .8125rem; }
+.match-scheduler :is(.scheduler-form input, .scheduler-form select, .scheduler-form textarea, .scheduler-inline-filter input) {
+  min-height: 2.125rem;
+  padding: .35rem .55rem;
+  border-radius: .375rem;
+  font: inherit;
+}
+
+.match-scheduler .day-plan-actions { gap: .5rem; margin-bottom: 0; }
+.match-scheduler .day-plan-actions input { min-width: 0; }
+.match-scheduler .day-plan-list { margin-top: .75rem; }
+.match-scheduler .day-plan-list h3 { margin: 0 0 .25rem; font-size: .875rem; }
+.match-scheduler .day-plan-list p { margin: .25rem 0; }
+.match-scheduler .player-match { padding: .6rem 0; }
+.day-plan-recipients {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: .125rem .75rem;
+}
+.day-plan-recipients .match-sms-recipient {
+  margin: 0;
+  color: var(--shell-muted);
+  font-size: .8125rem;
+}
+
+.match-scheduler .match-matrix :is(th, td) { height: 2rem; }
+.match-scheduler .match-matrix--dense thead th:not(.match-matrix__corner) { height: 7.5rem; }
+.match-scheduler .match-matrix :is(.match-matrix__button, .match-matrix__label) { min-height: 2rem; }
+.match-scheduler .scheduler-table :is(th, td) { padding: .45rem .55rem; }
+.match-scheduler .court-occupancy__grid { gap: .125rem; }
+.match-scheduler :is(.court-occupancy__corner, .court-occupancy__time, .court-occupancy__court, .court-slot) {
+  min-height: 2rem;
+  border-radius: .25rem;
+}
+
+.match-scheduler :is(.day-plan, .league-matches) .panel-card__header h2 {
+  font-size: .875rem;
+  font-weight: 650;
+}
+
+.match-scheduler .scheduler-text-action {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  min-height: 1.75rem;
+  padding: .15rem .35rem;
+  border: 0;
+  border-radius: .25rem;
+  background: transparent;
+  color: #205b44;
+  font-size: .75rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.match-scheduler .scheduler-text-action--danger { color: #9b302c; }
+.match-scheduler .scheduler-text-action:hover:not(:disabled) { background: #eef3f0; }
+.match-scheduler .scheduler-text-action:disabled { opacity: .55; cursor: default; }
+.day-plan-toggle > span {
+  width: .4rem;
+  height: .4rem;
+  border: solid currentColor;
+  border-width: 0 1px 1px 0;
+  transform: translateY(-.1rem) rotate(45deg);
+}
+.day-plan-toggle[aria-expanded="true"] > span { transform: translateY(.1rem) rotate(225deg); }
+
+.league-matches .scheduler-table { min-width: 34rem; }
+.match-scheduler .league-matches .scheduler-table :is(th, td) {
+  padding: .3rem .45rem;
+  border-color: #e8eeeb;
+  vertical-align: middle;
+}
+.league-matches .scheduler-table th { font-size: .75rem; font-weight: 550; }
+.league-matches .scheduler-table td > strong { font-weight: 550; }
+.league-matches .scheduler-table td:first-child { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.league-matches .scheduler-table tbody tr:hover { background: #f7f9f8; }
+.league-matches :is(.table-subtext, .match-sms-recipient) { font-size: .75rem; }
+.league-matches .status-pill {
+  padding: .125rem .4rem;
+  font-size: .6875rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.league-match-actions { display: flex; flex-wrap: wrap; gap: .125rem; }
+
+.match-delete-dialog {
+  width: min(24rem, calc(100vw - 2rem));
+  padding: 1rem;
+  border-radius: .625rem;
+  box-shadow: 0 12px 32px rgb(18 37 27 / 16%);
+}
+.match-delete-dialog::backdrop { background: rgb(18 37 27 / 30%); }
+.match-delete-dialog h2 { margin: 0 0 .5rem; font-size: 1rem; }
+.match-delete-dialog p { margin: 0; }
+.match-delete-dialog p span { display: block; margin-top: .15rem; color: var(--shell-muted); }
+.match-delete-dialog .form-actions { justify-content: flex-end; gap: .4rem; }
+.match-delete-dialog .form-message { margin-top: .65rem; }
+
+.match-scheduler .day-plan-table { min-width: 32rem; margin: .35rem 0 .6rem; }
+.match-scheduler .day-plan-table th { font-size: .75rem; }
+.match-scheduler .day-plan-table td { vertical-align: middle; }
+.match-scheduler .day-plan-table td:last-child { width: 1%; white-space: nowrap; }

@@ -8,7 +8,10 @@
     "start": "next dev",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "test": "node --experimental-strip-types --test scripts/player-scheduling.test.mjs scripts/match-scoring.test.mjs",
+    "test:scheduling:db": "node scripts/player-scheduling-db.test.cjs",
+    "analyze:sms": "node --experimental-strip-types scripts/analyze-sms-history.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.0.12",

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkOrigin } from "@/lib/player-auth";
 import { requireAdminUser } from "@/lib/admin";
 import { acceptProposalInDb, rejectProposalInDb } from "@/lib/scheduled-matches-db";
 
@@ -10,6 +11,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   }
 
   try {
+    checkOrigin(request);
     const payload = await request.json() as { action?: string; feedback?: string };
     const { id } = await context.params;
 

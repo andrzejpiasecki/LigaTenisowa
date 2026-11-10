@@ -67,8 +67,14 @@ model Player {
   proposalsAsOne MatchProposal[]    @relation("ProposalPlayerOne")
   proposalsAsTwo MatchProposal[]    @relation("ProposalPlayerTwo")
   inboundSms     InboundSms[]
+  syncedSms      SyncedSms[]
   weeklyAvailability PlayerWeeklyAvailability[]
   blockedPeriods  PlayerBlockedPeriod[]
+  account PlayerAccount?
+  sessions PlayerSession[]
+  replies MatchReply[]
+  smsOffers MatchSmsOffer[]
+  outgoingSms OutgoingSms[]
 
   @@index([league, season, status])
 }
@@ -166,12 +172,17 @@ model ScheduledMatch {
   location      String
   status        ScheduledMatchStatus @default(propozycja)
   adminNotes    String
+  confirmationVersion Int @default(1)
+  dayPlan Boolean @default(false)
   createdBy     String
   createdAt     DateTime             @default(now())
   updatedAt     DateTime             @updatedAt
   inboundSms    InboundSms[]
+  replies MatchReply[]
+  smsOffers MatchSmsOffer[]
 
   @@index([scheduledAt])
+  @@index([dayPlan, scheduledAt])
   @@index([league, season])
   @@index([createdBy])
 }
@@ -228,4 +239,92 @@ model MatchProposal {
 
   @@index([season, league, status])
   @@index([proposedStartsAt, proposedEndsAt])
+}
+
+// Player authentication is independent of Clerk, which remains for administrators.
+model PlayerAccount {
+  playerId String @id
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  passwordHash String?
+  inviteHash String? @unique
+  inviteExpiresAt DateTime? @db.Timestamptz(3)
+  createdAt DateTime @default(now())
+}
+
+model PlayerSession {
+  tokenHash String @id
+  playerId String
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  expiresAt DateTime @db.Timestamptz(3)
+  @@index([playerId])
+}
+
+model LoginThrottle {
+  key String @id
+  attempts Int @default(1)
+  expiresAt DateTime @db.Timestamptz(3)
+}
+
+model MatchReply {
+  id String @id @default(cuid())
+  matchId String
+  match ScheduledMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerId String
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  // Responses are scoped to the exact time and participants; rescheduling invalidates them.
+  revision String
+  accepted Boolean
+  alternative String?
+  createdAt DateTime @default(now())
+  @@unique([matchId, playerId, revision])
+}
+
+model OutgoingSms {
+  id String @id @default(cuid())
+  dedupeKey String @unique
+  playerId String
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  phone String
+  body String
+  status String @default("queued")
+  gatewayId String?
+  error String @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([status, createdAt])
+}
+
+enum SyncedSmsDirection {
+  incoming
+  outgoing
+}
+
+model SyncedSms {
+  id          String             @id
+  playerId    String
+  player      Player             @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  phone       String
+  direction   SyncedSmsDirection
+  body        String
+  occurredAt  DateTime           @db.Timestamptz(3)
+  importedAt  DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([playerId, occurredAt, id])
+}
+
+model MatchSmsOffer {
+  id String @id @default(cuid())
+  matchId String
+  match ScheduledMatch @relation(fields: [matchId], references: [id], onDelete: Cascade)
+  playerId String
+  player Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  revision String
+  phone String
+  tokenHash String? @unique
+  expiresAt DateTime @db.Timestamptz(3)
+  usedAt DateTime? @db.Timestamptz(3)
+  status String @default("queued")
+  gatewayId String?
+  error String @default("")
+  @@unique([matchId, playerId, revision])
 }

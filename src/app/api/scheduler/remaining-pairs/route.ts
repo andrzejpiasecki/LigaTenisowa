@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdminUser } from "@/lib/admin";
-import { fetchRemainingPairs } from "@/lib/results-matches";
+import { fetchLeagueMatchMatrix } from "@/lib/results-matches";
 import { listPlayersFromDb } from "@/lib/scheduled-matches-db";
 
 export async function GET(request: NextRequest) {
@@ -12,21 +12,19 @@ export async function GET(request: NextRequest) {
 
   const seasonId = request.nextUrl.searchParams.get("seasonId") || "";
   const leagueId = request.nextUrl.searchParams.get("leagueId") || "";
-  const playerId = request.nextUrl.searchParams.get("playerId") || "";
 
   if (!seasonId || !leagueId) {
-    return NextResponse.json({ pairs: [] });
+    return NextResponse.json({ participants: [], playedPairKeys: [], fivePointPairKeys: [], recordedMatches: [], pairs: [] });
   }
 
   try {
     const players = await listPlayersFromDb();
-    const pairs = await fetchRemainingPairs({
+    const matrix = await fetchLeagueMatchMatrix({
       seasonId,
       leagueId,
       players,
-      playerId,
     });
-    return NextResponse.json({ pairs });
+    return NextResponse.json(matrix);
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : "Nie udało się pobrać par pozostałych do rozegrania." },

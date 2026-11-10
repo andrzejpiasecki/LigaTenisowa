@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { checkOrigin } from "@/lib/player-auth";
 import { requireAdminUser } from "@/lib/admin";
 import { getSchedulerOverviewFromDb, regenerateProposalsInDb } from "@/lib/scheduled-matches-db";
 
@@ -13,7 +14,7 @@ export async function GET() {
   return NextResponse.json(overview);
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   const access = await requireAdminUser();
 
   if (!access.userId || !access.isAdmin) {
@@ -21,6 +22,7 @@ export async function POST() {
   }
 
   try {
+    checkOrigin(request);
     const proposals = await regenerateProposalsInDb();
     return NextResponse.json({ proposals });
   } catch (error) {

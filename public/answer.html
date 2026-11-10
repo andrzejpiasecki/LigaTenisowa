@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Propozycja meczu · Liga Tenisowa</title>
+  <link rel="stylesheet" href="/answer.css">
+  <script defer src="/answer.js"></script>
+</head>
+<body>
+  <main>
+    <p class="brand">Liga Tenisowa</p>
+    <h1>Pasuje Ci ten mecz?</h1>
+    <p id="status" role="status" aria-live="polite">Ładowanie propozycji…</p>
+    <dl id="details" hidden>
+      <dt>Termin</dt><dd id="date"></dd>
+      <dt>Przeciwnik</dt><dd id="opponent"></dd>
+      <dt>Kort</dt><dd id="court"></dd>
+    </dl>
+    <form id="reply" hidden>
+      <fieldset>
+        <legend>Wybierz odpowiedź</legend>
+        <label><input type="radio" name="choice" value="yes" required> Tak</label>
+        <label><input type="radio" name="choice" value="no"> Nie</label>
+        <label><input type="radio" name="choice" value="alternative"> Inny termin</label>
+        <label id="alternative-field" hidden>Jaki termin Ci pasuje?
+          <textarea name="alternative" maxlength="300" rows="3" placeholder="Np. w czwartek po 18:00"></textarea>
+        </label>
+        <button type="submit">Zapisz odpowiedź</button>
+      </fieldset>
+    </form>
+  </main>
+</body>
+</html>

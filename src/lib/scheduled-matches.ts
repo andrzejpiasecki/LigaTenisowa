@@ -24,6 +24,8 @@ export type ScheduledMatch = {
   location: string;
   status: ScheduledMatchStatus;
   adminNotes: string;
+  confirmationVersion?: number;
+  dayPlan?: boolean;
   createdAt: string;
   updatedAt: string;
   createdBy: string;
@@ -246,6 +248,26 @@ export type RemainingPair = {
   playerOneId: string;
   playerTwoId: string;
   isMapped: boolean;
+};
+
+export type LeagueRecordedMatch = {
+  date: string;
+  winner: string;
+  loser: string;
+  score: string;
+  sets: string[];
+};
+
+export type LeagueMatchMatrix = {
+  participants: Array<{
+    name: string;
+    playerId: string;
+    isActive: boolean;
+  }>;
+  playedPairKeys: string[];
+  fivePointPairKeys: string[];
+  recordedMatches: LeagueRecordedMatch[];
+  pairs: RemainingPair[];
 };
 
 export function isScheduledMatchStatus(value: string): value is ScheduledMatchStatus {

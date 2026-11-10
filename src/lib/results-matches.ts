@@ -1,12 +1,14 @@
 import { normalizePersonName } from "@/lib/results-directory";
-import { type Player, type RemainingPair } from "@/lib/scheduled-matches";
+import { isFivePointWin } from "@/lib/match-scoring";
+import { type LeagueMatchMatrix, type LeagueRecordedMatch, type Player, type RemainingPair } from "@/lib/scheduled-matches";
 
 const TARGET_ORIGIN = "http://tenisv.pl";
+// Source ordering is only by date, so keep results with equal dates on the same source page when possible.
+const UPSTREAM_PAGE_SIZE = "10000";
 
-type ResultsMatch = {
-  winner: string;
-  loser: string;
+type ResultsMatch = LeagueRecordedMatch & {
   leagueName: string;
+  fivePointWin: boolean;
 };
 
 type LeagueParticipant = {
@@ -83,11 +85,11 @@ function buildMatchesPayload(defaults: Record<string, string>, seasonId: string,
   const payload = new URLSearchParams();
   payload.append("show_strona", defaults.show_strona || "1");
   payload.append("id_sezon", seasonId || defaults.id_sezon || "");
-  payload.append("id_liga", leagueId || defaults.id_liga || "");
+  payload.append("id_liga", leagueId);
   payload.append("id_gracz", defaults.id_gracz || "");
   payload.append("id_gracz2", defaults.id_gracz2 || "");
   payload.append("sort", defaults.sort || "data DESC");
-  payload.append("limit", "500");
+  payload.append("limit", UPSTREAM_PAGE_SIZE);
   payload.append("show", defaults.show || "go");
   return payload;
 }
@@ -138,57 +140,101 @@ function parseMatches(html: string) {
       continue;
     }
 
-    matches.push({ winner, loser, leagueName });
+    matches.push({
+      date: cells[1], winner, loser, leagueName, score: cells[6],
+      sets: cells.slice(7, 10).filter((set) => /\d+\s*:\s*\d+/.test(set) && !/^0\s*:\s*0$/.test(set)),
+      fivePointWin: isFivePointWin(cells[6], cells[7], cells[8]),
+    });
   }
 
   return matches;
 }
 
-export async function fetchRemainingPairs(params: {
+async function fetchRecordedMatches(defaults: Record<string, string>, seasonId: string, leagueId: string, leagueLabel?: string) {
+  const payload = buildMatchesPayload(defaults, seasonId, leagueId);
+  payload.set("last_limit", UPSTREAM_PAGE_SIZE);
+  const matches: ResultsMatch[] = [];
+  const seenPages = new Set<string>();
+
+  for (let page = 1; ; page++) {
+    payload.set("show_strona", String(page));
+    const response = await fetch(`${TARGET_ORIGIN}/mecze/mecze_lista.php`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
+      body: payload.toString(),
+      cache: "no-store",
+    });
+    if (!response.ok) throw new Error(`Nie udało się pobrać listy meczów (${response.status}).`);
+    const html = await response.text();
+    const pageMatches = parseMatches(html);
+    const signature = JSON.stringify(pageMatches);
+    if (seenPages.has(signature)) throw new Error("Źródło wyników zwróciło tę samą stronę ponownie.");
+    seenPages.add(signature);
+    matches.push(...(leagueLabel ? pageMatches.filter((match) => normalizeWhitespace(match.leagueName) === leagueLabel) : pageMatches));
+    if (!html.includes(`submitForm(${page + 1});`)) return matches;
+  }
+}
+
+export async function fetchSeasonResultsWithLabel(seasonId: string) {
+  const context = await fetchFormContext();
+  const season = context.seasonOptions.find((option) => option.value === seasonId);
+  if (!season) return { season: "", matches: [] };
+  const recorded = await fetchRecordedMatches(context.defaults, season.value, "");
+  const matches = recorded.map(({ date, winner, loser, score, sets, leagueName }) => ({
+    date, winner, loser, score, sets, league: leagueName,
+  }));
+  return { season: season.label, matches };
+}
+
+export async function fetchSeasonResults(seasonId: string) {
+  return (await fetchSeasonResultsWithLabel(seasonId)).matches;
+}
+
+export async function fetchLeagueMatchMatrix(params: {
   seasonId: string;
   leagueId: string;
   players: Player[];
-  playerId?: string;
-}) {
+}): Promise<LeagueMatchMatrix & { seasonLabel: string; leagueLabel: string }> {
   const context = await fetchFormContext();
   const season = context.seasonOptions.find((option) => option.value === params.seasonId);
   const league = context.leagueOptions.find((option) => option.value === params.leagueId);
 
   if (!season || !league) {
-    return [] as RemainingPair[];
+    return { seasonLabel: "", leagueLabel: "", participants: [], playedPairKeys: [], fivePointPairKeys: [], recordedMatches: [], pairs: [] };
   }
 
-  const payload = buildMatchesPayload(context.defaults, season.value, league.value);
-  const response = await fetch(`${TARGET_ORIGIN}/mecze/mecze_lista.php`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body: payload.toString(),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Nie udało się pobrać listy meczów (${response.status}).`);
+  const matches = await fetchRecordedMatches(context.defaults, season.value, league.value, league.label);
+  const leaguePlayers = params.players.filter((player) => player.season === season.label && player.league === league.label);
+  const participantByKey = new Map<string, string>();
+  for (const name of [
+    ...matches.flatMap((match) => [match.winner, match.loser]),
+    ...leaguePlayers.map((player) => player.resultsPlayerName || player.fullName),
+  ]) {
+    const label = normalizeWhitespace(name);
+    const key = normalizePersonName(label);
+    if (key && !participantByKey.has(key)) {
+      participantByKey.set(key, label);
+    }
   }
-
-  const html = await response.text();
-  const matches = parseMatches(html).filter((match) => normalizeWhitespace(match.leagueName) === league.label);
-  const participantNames = [...new Set(
-    matches
-      .flatMap((match) => [match.winner, match.loser])
-      .map((name) => normalizeWhitespace(name))
-      .filter(Boolean),
-  )].sort((left, right) => left.localeCompare(right, "pl"));
+  const participantNames = [...participantByKey.values()].sort((left, right) => left.localeCompare(right, "pl"));
   const playedPairs = new Set(
     matches.map((match) => [normalizePersonName(match.winner), normalizePersonName(match.loser)].sort().join("::")),
   );
+  const fivePointPairs = new Set(
+    matches
+      .filter((match) => match.fivePointWin)
+      .map((match) => [normalizePersonName(match.winner), normalizePersonName(match.loser)].sort().join("::")),
+  );
   const playerByResultsName = new Map(
-    params.players
+    leaguePlayers
       .filter((player) => player.resultsPlayerName || player.fullName)
       .map((player) => [normalizePersonName(player.resultsPlayerName || player.fullName), player]),
   );
   const remainingPairs: RemainingPair[] = [];
+  const participants = participantNames.map((name) => {
+    const player = playerByResultsName.get(normalizePersonName(name));
+    return { name, playerId: player?.id || "", isActive: player?.status !== "nieaktywny" };
+  });
 
   for (let leftIndex = 0; leftIndex < participantNames.length; leftIndex += 1) {
     for (let rightIndex = leftIndex + 1; rightIndex < participantNames.length; rightIndex += 1) {
@@ -203,14 +249,6 @@ export async function fetchRemainingPairs(params: {
       const playerOne = playerByResultsName.get(normalizePersonName(playerOneName));
       const playerTwo = playerByResultsName.get(normalizePersonName(playerTwoName));
 
-      if (playerOne?.status === "nieaktywny" || playerTwo?.status === "nieaktywny") {
-        continue;
-      }
-
-      if (params.playerId && playerOne?.id !== params.playerId && playerTwo?.id !== params.playerId) {
-        continue;
-      }
-
       remainingPairs.push({
         playerOneName,
         playerTwoName,
@@ -221,7 +259,15 @@ export async function fetchRemainingPairs(params: {
     }
   }
 
-  return params.playerId ? remainingPairs : remainingPairs.slice(0, 250);
+  return {
+    seasonLabel: season.label,
+    leagueLabel: league.label,
+    participants,
+    playedPairKeys: [...playedPairs],
+    fivePointPairKeys: [...fivePointPairs],
+    recordedMatches: matches.map(({ date, winner, loser, score, sets }) => ({ date, winner, loser, score, sets })),
+    pairs: remainingPairs,
+  };
 }
 
 export async function fetchLeagueParticipants(params: {
@@ -240,22 +286,7 @@ export async function fetchLeagueParticipants(params: {
     };
   }
 
-  const payload = buildMatchesPayload(context.defaults, season.value, league.value);
-  const response = await fetch(`${TARGET_ORIGIN}/mecze/mecze_lista.php`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
-    },
-    body: payload.toString(),
-    cache: "no-store",
-  });
-
-  if (!response.ok) {
-    throw new Error(`Nie udało się pobrać uczestników ligi (${response.status}).`);
-  }
-
-  const html = await response.text();
-  const matches = parseMatches(html).filter((match) => normalizeWhitespace(match.leagueName) === league.label);
+  const matches = await fetchRecordedMatches(context.defaults, season.value, league.value, league.label);
   const participantByName = new Map<string, LeagueParticipant>();
 
   for (const match of matches) {

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { PlayerPasswordAdmin } from "@/components/player-password-admin";
 import { useEffect, useState, useTransition } from "react";
 import {
   type PlayerBlockedPeriod,
@@ -65,6 +66,31 @@ export function PlayerDetailAdmin({ playerId }: PlayerDetailAdminProps) {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [isPending, startTransition] = useTransition();
+
+  const [historyText, setHistoryText] = useState("");
+  const [suggestedWindows, setSuggestedWindows] = useState<Omit<WeeklyDraft, "notes">[] | null>(null);
+  const [historyError, setHistoryError] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+
+  async function analyzeHistory() {
+    setAnalyzing(true);
+    setHistoryError("");
+    setSuggestedWindows(null);
+    try {
+      const response = await fetch(`/api/players/${encodeURIComponent(playerId)}/analyze-history`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: historyText }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error);
+      setSuggestedWindows(result.windows);
+    } catch (error) {
+      setHistoryError(error instanceof Error ? error.message : "Nie udało się przeanalizować rozmowy.");
+    } finally {
+      setAnalyzing(false);
+    }
+  }
 
   async function loadDetail() {
     const response = await fetch(`/api/players/${playerId}`, { cache: "no-store" });
@@ -208,6 +234,8 @@ export function PlayerDetailAdmin({ playerId }: PlayerDetailAdminProps) {
         {success ? <p className="form-message form-message--success">{success}</p> : null}
       </section>
 
+      <PlayerPasswordAdmin playerId={playerId} phone={detail.player.phone} />
+
       <div className="scheduler-main-grid">
         <section className="panel-card">
           <div className="panel-card__header">
@@ -216,6 +244,43 @@ export function PlayerDetailAdmin({ playerId }: PlayerDetailAdminProps) {
               <p>Dni tygodnia i godziny, w których zawodnik zwykle może grać.</p>
             </div>
           </div>
+
+          <details className="scheduler-layout">
+            <summary>Analizuj rozmowę przez Gemini</summary>
+            <div className="scheduler-form">
+              <label className="scheduler-form__notes">
+                Fragment rozmowy o terminach
+                <textarea value={historyText} maxLength={8000} rows={4} disabled={analyzing}
+                  placeholder="Wklej rozmowę lub zostaw pole puste, aby użyć zsynchronizowanych SMS-ów."
+                  onChange={(event) => { setHistoryText(event.target.value); setSuggestedWindows(null); setHistoryError(""); }} />
+              </label>
+            </div>
+            <p className="scheduler-hint">Kliknięcie wyśle fragment rozmowy do Gemini. Sprawdź propozycje przed zapisaniem dostępności.</p>
+            <div className="form-actions">
+              <button type="button" className="button-secondary" disabled={analyzing} onClick={analyzeHistory}>
+                {analyzing ? "Analizowanie…" : "Analizuj rozmowę"}
+              </button>
+            </div>
+            {historyError && <p role="alert">{historyError}</p>}
+            {suggestedWindows && (suggestedWindows.length ? (
+              <ul>
+                {suggestedWindows.map((window) => (
+                  <li key={JSON.stringify(window)}>
+                    {WEEKDAY_OPTIONS.find((day) => day.value === window.weekday)?.label} · {window.startTime}–{window.endTime}{" "}
+                    <button type="button" className="button-secondary" disabled={weeklyDrafts.some((entry) =>
+                      entry.weekday === window.weekday && entry.startTime === window.startTime && entry.endTime === window.endTime
+                    )} onClick={() => setWeeklyDrafts((current) => {
+                      const initial = emptyWeeklyDraft();
+                      const onlyPlaceholder = !detail.weeklyAvailability.length && current.length === 1
+                        && current[0].weekday === initial.weekday && current[0].startTime === initial.startTime
+                        && current[0].endTime === initial.endTime && !current[0].notes;
+                      return [...(onlyPlaceholder ? [] : current), { ...window, notes: "" }];
+                    })}>Dodaj do dostępności</button>
+                  </li>
+                ))}
+              </ul>
+            ) : <p role="status">Gemini nie znalazł stałych godzin gry.</p>)}
+          </details>
 
           <div className="scheduler-layout">
             {weeklyDrafts.map((entry, index) => (

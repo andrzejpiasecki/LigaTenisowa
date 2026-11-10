@@ -1,0 +1,14 @@
+:root { color-scheme: light; font: 16px system-ui, sans-serif; color: #17241c; background: #eef5ed; }
+body { margin: 0; padding: 1.2rem; }
+main { max-width: 30rem; margin: 5vh auto 0; padding: 1.4rem; border-radius: 1rem; background: white; }
+h1 { font-size: 1.7rem; margin: .35rem 0 1rem; }
+.brand { color: #246343; font-weight: 700; }
+dl { display: grid; grid-template-columns: auto 1fr; gap: .55rem 1rem; margin-bottom: 1.5rem; }
+dt { color: #47584b; } dd { margin: 0; font-weight: 650; overflow-wrap: anywhere; }
+fieldset { display: grid; gap: .55rem; padding: 0; border: 0; }
+legend { font-weight: 650; margin-bottom: .5rem; }
+label { padding: .5rem 0; cursor: pointer; }
+textarea { display: block; box-sizing: border-box; width: 100%; margin-top: .5rem; font: inherit; padding: .55rem; }
+button { padding: .7rem; border: 0; border-radius: .5rem; color: white; background: #246343; font: inherit; font-weight: 700; }
+button:disabled { opacity: .6; }
+[hidden] { display: none !important; }

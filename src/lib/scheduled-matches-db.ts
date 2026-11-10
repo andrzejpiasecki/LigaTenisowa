@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { getDatabaseSchema, getScopedDatabaseUrl } from "@/lib/database-url";
 import { formatImportedPlayerName, normalizePersonName } from "@/lib/results-directory";
+import { generateWebsiteProposals, acceptWebsiteProposal } from "@/lib/player-scheduling";
 import { buildSmartProposals } from "@/lib/smart-matchmaker";
 import { parseSmsAvailabilityWithAi } from "@/lib/sms-ai-parser";
 import {
@@ -103,6 +104,8 @@ function mapRowToScheduledMatch(row: Record<string, unknown>): ScheduledMatch {
     location: String(row.location || ""),
     status: String(row.status) as ScheduledMatch["status"],
     adminNotes: String(row.adminNotes || ""),
+    confirmationVersion: Number(row.confirmationVersion ?? 1),
+    dayPlan: row.dayPlan === true,
     createdAt: new Date(String(row.createdAt)).toISOString(),
     updatedAt: new Date(String(row.updatedAt)).toISOString(),
     createdBy: String(row.createdBy),
@@ -623,6 +626,18 @@ export async function createCourtInDb(payload: CourtPayload) {
   return mapRowToCourt(result.rows[0]);
 }
 
+export async function updateCourtInDb(id: string, payload: CourtPayload) {
+  const { pool, schema } = getPool();
+  const table = `${quoteIdentifier(schema)}.${quoteIdentifier("Court")}`;
+  const court = normalizeCourtPayload(payload);
+  const result = await pool.query(
+    `UPDATE ${table} SET "name" = $2, "location" = $3, "openingTime" = $4, "closingTime" = $5,
+      "isActive" = $6, "notes" = $7, "updatedAt" = NOW() WHERE "id" = $1 RETURNING *`,
+    [id, court.name, court.location, court.openingTime, court.closingTime, court.isActive, court.notes],
+  );
+  return result.rows[0] ? mapRowToCourt(result.rows[0]) : null;
+}
+
 export async function listAvailabilitiesFromDb() {
   const { pool, schema } = getPool();
   const table = `${quoteIdentifier(schema)}.${quoteIdentifier("PlayerAvailability")}`;
@@ -798,8 +813,15 @@ export async function updateScheduledMatchInDb(id: string, payload: ScheduledMat
         "courtId" = $10,
         "scheduledAt" = $11,
         "location" = $12,
-        "status" = $13::${statusEnum},
+        "status" = CASE WHEN "scheduledAt" IS DISTINCT FROM $11::timestamptz
+          OR "playerOneId" IS DISTINCT FROM $4::text OR "playerTwoId" IS DISTINCT FROM $7::text
+          OR "courtId" IS DISTINCT FROM $10::text OR "location" IS DISTINCT FROM $12::text
+          THEN CASE WHEN $13 IN ('potwierdzony', 'oczekuje') THEN 'oczekuje'::${statusEnum} ELSE $13::${statusEnum} END
+          ELSE $13::${statusEnum} END,
         "adminNotes" = $14,
+        "confirmationVersion" = "confirmationVersion" + CASE WHEN "scheduledAt" IS DISTINCT FROM $11::timestamptz
+          OR "playerOneId" IS DISTINCT FROM $4::text OR "playerTwoId" IS DISTINCT FROM $7::text
+          OR "courtId" IS DISTINCT FROM $10::text OR "location" IS DISTINCT FROM $12::text THEN 1 ELSE 0 END,
         "updatedAt" = NOW()
       WHERE "id" = $1
       RETURNING *
@@ -886,83 +908,12 @@ async function replaceProposalsForSms(params: {
 }
 
 export async function regenerateProposalsInDb() {
-  const { pool, schema } = getPool();
-  const [players, courts, availabilities, matches, history, inboundSms] = await Promise.all([
-    listPlayersFromDb(),
-    listCourtsFromDb(),
-    listAvailabilitiesFromDb(),
-    listScheduledMatchesFromDb(),
-    listMatchHistoryFromDb(500),
-    listInboundSmsFromDb(100),
-  ]);
-
-  const relevantSms = inboundSms.filter((sms) => sms.matchedPlayerId && sms.parsedStartsAt);
-
-  for (const sms of relevantSms) {
-    const proposals = await buildSmartProposals({
-      sms,
-      players,
-      courts,
-      availabilities,
-      matches,
-      history,
-    });
-    await replaceProposalsForSms({
-      pool,
-      schema,
-      sourceSmsId: sms.id,
-      created: proposals,
-    });
-  }
-
+  await generateWebsiteProposals();
   return listMatchProposalsFromDb();
 }
 
 export async function acceptProposalInDb(id: string, adminUserId: string) {
-  const { pool, schema } = getPool();
-  const proposalTable = `${quoteIdentifier(schema)}.${quoteIdentifier("MatchProposal")}`;
-  const statusEnum = `${quoteIdentifier(schema)}.${quoteIdentifier("MatchProposalStatus")}`;
-  const result = await pool.query(
-    `${proposalsSelect(schema)} WHERE proposal."id" = $1 LIMIT 1`,
-    [id],
-  );
-
-  if (!result.rows.length) {
-    throw new Error("Nie znaleziono propozycji.");
-  }
-
-  const proposal = mapRowToProposal(result.rows[0]);
-  await pool.query(
-    `
-      UPDATE ${proposalTable}
-      SET "status" = $2::${statusEnum}, "updatedAt" = NOW()
-      WHERE "id" = $1
-    `,
-    [id, "accepted"],
-  );
-
-  const playerLookup = new Map((await listPlayersFromDb()).map((player) => [player.id, player]));
-  const playerOne = playerLookup.get(proposal.playerOneId);
-  const playerTwo = playerLookup.get(proposal.playerTwoId);
-
-  await createScheduledMatchInDb(
-    {
-      season: proposal.season,
-      league: proposal.league,
-      playerOneId: proposal.playerOneId,
-      playerOne: playerOne?.fullName || proposal.playerOneName,
-      playerOnePhone: playerOne?.phone || "",
-      playerTwoId: proposal.playerTwoId,
-      playerTwo: playerTwo?.fullName || proposal.playerTwoName,
-      playerTwoPhone: playerTwo?.phone || "",
-      courtId: proposal.courtId,
-      scheduledAt: proposal.proposedStartsAt,
-      location: proposal.courtName || "",
-      status: "oczekuje",
-      adminNotes: `Zaakceptowano z AI draft. ${proposal.rationale}`,
-    },
-    adminUserId,
-  );
+  return acceptWebsiteProposal(id, adminUserId);
 }
 
 export async function rejectProposalInDb(id: string, feedback: string) {

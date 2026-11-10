@@ -17,6 +17,7 @@ function createPrismaClient(connectionString: string, schema: string) {
         connectionString,
         options: `-c search_path=${schema}`,
       }),
+      { schema },
     ),
     log: process.env.NODE_ENV === "development" ? ["query", "error", "warn"] : ["error"],
   });
@@ -34,7 +35,7 @@ function getPrismaConfig() {
 const hasRequiredDelegates = (client: PrismaClient | undefined) => {
   if (!client) return false;
   const prismaClient = client as unknown as Record<string, unknown>;
-  return "scheduledMatch" in prismaClient;
+  return "scheduledMatch" in prismaClient && "playerAccount" in prismaClient && "matchSmsOffer" in prismaClient;
 };
 
 export function getDb() {
@@ -49,10 +50,8 @@ export function getDb() {
 
   const { prisma } = createPrismaClient(connectionString, schema);
 
-  if (process.env.NODE_ENV !== "production") {
-    globalForPrisma.prisma = prisma;
-    globalForPrisma.prismaConfigKey = configKey;
-  }
+  globalForPrisma.prisma = prisma;
+  globalForPrisma.prismaConfigKey = configKey;
 
   return prisma;
 }

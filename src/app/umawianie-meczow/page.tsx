@@ -42,7 +42,6 @@ export default async function SchedulingPage() {
   return (
     <AppShell
       title="Umawianie meczów"
-      subtitle="Administracyjny moduł do planowania i aktualizacji terminów."
       isAdmin
       requireAuth
     >
